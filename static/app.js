@@ -1190,11 +1190,10 @@ function triggerPwaInstall() {
         showToast('Palachrakk app installed to your home screen!', 'success');
       }
       deferredPrompt = null;
-      const installBtn = document.getElementById('pwa-install-btn');
-      if (installBtn) installBtn.classList.add('hidden');
     });
   } else {
-    showToast('On iPhone: Tap Share ➔ "Add to Home Screen" 📲', 'info');
+    // Open visual step-by-step install guide modal
+    openModal('install-guide-modal');
   }
 }
 
