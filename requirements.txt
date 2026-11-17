@@ -1,0 +1,2 @@
+# No external dependencies required!
+# CartShare runs 100% on Python 3 standard library and SQLite.
