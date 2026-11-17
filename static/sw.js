@@ -1,5 +1,5 @@
-// CartShare Service Worker - Offline Caching & Mobile System Notifications
-const CACHE_NAME = 'cartshare-v2';
+// Palachrakk Service Worker - Offline Caching & Mobile System Notifications
+const CACHE_NAME = 'palachrakk-v3';
 const STATIC_ASSETS = [
   '/',
   '/style.css',
@@ -31,7 +31,6 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-  // Let API requests pass directly to the network
   if (e.request.url.includes('/api/')) {
     return;
   }
@@ -45,13 +44,11 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // Focus existing window if open
       for (const client of clientList) {
         if (client.url && 'focus' in client) {
           return client.focus();
         }
       }
-      // Or open a new window
       if (clients.openWindow) {
         return clients.openWindow('/');
       }

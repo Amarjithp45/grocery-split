@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>CartShare — Group Grocery List & Bill Splitting</title>
+  <title>Palachrakk — Group Grocery List & Bill Splitting</title>
   
   <!-- PWA Meta Tags -->
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#059669">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="CartShare">
+  <meta name="apple-mobile-web-app-title" content="Palachrakk">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
   <!-- Tailwind CSS CDN -->
@@ -33,7 +33,7 @@
         <div class="w-14 h-14 mx-auto rounded-3xl bg-emerald-600 text-white flex items-center justify-center text-3xl shadow-lg shadow-emerald-600/30">
           🛒
         </div>
-        <h1 class="text-2xl font-black text-slate-900 tracking-tight">CartShare</h1>
+        <h1 class="text-2xl font-black text-slate-900 tracking-tight">Palachrakk</h1>
         <p class="text-xs text-slate-500 font-medium max-w-xs mx-auto">
           Shared supermarket shopping checklist and automatic bill-splitting for you and your friends.
         </p>
@@ -67,7 +67,7 @@
         </div>
 
         <button type="submit" class="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-md shadow-emerald-600/30 transition active:scale-95">
-          Sign In to CartShare
+          Sign In to Palachrakk
         </button>
       </form>
 
@@ -118,20 +118,20 @@
           </div>
           <div>
             <div class="flex items-center gap-2">
-              <h1 class="text-base font-extrabold tracking-tight text-slate-900 leading-none">CartShare</h1>
+              <h1 class="text-base font-extrabold tracking-tight text-slate-900 leading-none">Palachrakk</h1>
               <div class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[10px] font-semibold text-slate-600">
                 <span id="live-indicator" class="w-2 h-2 rounded-full bg-emerald-500 pulse-live"></span>
                 <span id="live-text">Live Sync</span>
               </div>
             </div>
-            <p class="text-[11px] text-slate-500 font-medium">Grocery shopping & split for friends</p>
+            <p class="text-[11px] text-slate-500 font-medium">Grocery shopping & split in Euros (€)</p>
           </div>
         </div>
 
         <!-- User Controls -->
         <div class="flex items-center gap-2">
           <!-- Install App button -->
-          <button id="pwa-install-btn" onclick="triggerPwaInstall()" class="hidden items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm shadow-emerald-600/20 transition" title="Install CartShare App">
+          <button id="pwa-install-btn" onclick="triggerPwaInstall()" class="hidden items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm shadow-emerald-600/20 transition" title="Install Palachrakk App">
             <span>📲 Install</span>
           </button>
 
@@ -158,7 +158,7 @@
         </button>
 
         <button id="tab-btn-bills" onclick="switchTab('bills')" class="flex items-center gap-2 px-4 py-2 rounded-2xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold text-xs transition">
-          <span>🧾 Bills & Split</span>
+          <span>🧾 Bills & Split (€)</span>
         </button>
 
         <button id="tab-btn-activity" onclick="switchTab('activity')" class="flex items-center gap-2 px-4 py-2 rounded-2xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold text-xs transition">
@@ -259,10 +259,10 @@
         <section class="space-y-2.5">
           <div class="flex items-center justify-between px-1">
             <h2 class="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Needed at Store</h2>
-            <span class="text-[11px] text-slate-400">Tap checkmark when bought</span>
+            <span class="text-[11px] text-slate-400">Shows date & time added • Tap checkmark when bought</span>
           </div>
           <div id="grocery-items-container" class="space-y-2">
-            <!-- Active items render here -->
+            <!-- Active items render here with date and time -->
           </div>
         </section>
 
@@ -281,28 +281,28 @@
             </button>
           </div>
           <div id="bought-items-container" class="space-y-1.5">
-            <!-- Bought items render here -->
+            <!-- Bought items render here with checkout date and time -->
           </div>
         </section>
 
       </div>
 
       <!-- ========================================== -->
-      <!-- TAB 2: BILLS & EXPENSE SPLITTING           -->
+      <!-- TAB 2: BILLS & EXPENSE SPLITTING (EUROS)   -->
       <!-- ========================================== -->
       <div id="tab-content-bills" class="space-y-6" style="display: none;">
         
         <!-- Split Stats Cards -->
         <section class="grid grid-cols-2 gap-3 sm:gap-4">
           <div class="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/80 shadow-sm">
-            <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Groceries</div>
-            <div id="stat-total-spent" class="text-2xl font-black text-slate-900 mt-1">$0.00</div>
+            <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Groceries Spent</div>
+            <div id="stat-total-spent" class="text-2xl font-black text-slate-900 mt-1">€0.00</div>
             <div class="text-[11px] text-slate-500 mt-0.5">Recorded across all shopping trips</div>
           </div>
 
           <div class="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/80 shadow-sm">
             <div id="stat-my-balance-label" class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Your Balance</div>
-            <div id="stat-my-balance" class="text-2xl font-black text-slate-800 mt-1">$0.00</div>
+            <div id="stat-my-balance" class="text-2xl font-black text-slate-800 mt-1">€0.00</div>
             <div class="text-[11px] text-slate-500 mt-0.5">Based on bills and settlements</div>
           </div>
         </section>
@@ -310,8 +310,8 @@
         <!-- Action Button: Add Bill -->
         <div class="flex items-center justify-between">
           <div>
-            <h2 class="text-sm font-extrabold text-slate-900">Settlement & Splits</h2>
-            <p class="text-xs text-slate-500">Track who owes whom and clear debts</p>
+            <h2 class="text-sm font-extrabold text-slate-900">Settlement & Splits (€)</h2>
+            <p class="text-xs text-slate-500">Track who owes whom in Euros and settle debts</p>
           </div>
           <button onclick="openAddBillModal()" class="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm shadow-emerald-600/30 flex items-center gap-1.5 transition active:scale-95">
             <span>➕ Add Supermarket Bill</span>
@@ -320,7 +320,7 @@
 
         <!-- Who Owes Whom (Debt Simplification Cards) -->
         <section class="space-y-2.5">
-          <div class="text-xs font-extrabold text-slate-400 uppercase tracking-wider px-1">Simplified Transfers</div>
+          <div class="text-xs font-extrabold text-slate-400 uppercase tracking-wider px-1">Simplified Transfers (€)</div>
           <div id="transfers-container" class="space-y-2.5">
             <!-- Transfer cards render here -->
           </div>
@@ -328,7 +328,7 @@
 
         <!-- Group Balances Breakdown -->
         <section class="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm space-y-3">
-          <h3 class="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Group Net Balances</h3>
+          <h3 class="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Group Net Balances (€)</h3>
           <div id="member-balances-container" class="space-y-1">
             <!-- Balances breakdown -->
           </div>
@@ -364,7 +364,7 @@
   </div>
 
   <!-- ========================================== -->
-  <!-- MODAL: ADD SUPERMARKET BILL                -->
+  <!-- MODAL: ADD SUPERMARKET BILL (EUROS)        -->
   <!-- ========================================== -->
   <div id="add-bill-modal" class="modal-backdrop fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center p-4">
     <div class="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-100 space-y-4 animate-slide-down">
@@ -379,13 +379,13 @@
       <form onsubmit="submitBill(event)" class="space-y-3.5">
         <div>
           <label class="block text-xs font-bold text-slate-600 mb-1">Store Name / Trip</label>
-          <input id="bill-store-input" type="text" required placeholder="e.g. Costco, Trader Joe's, Safeway" 
+          <input id="bill-store-input" type="text" required placeholder="e.g. Lidl, Aldi, Carrefour, SPAR" 
                  class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3.5 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-500" />
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1">Total Bill Amount ($)</label>
+            <label class="block text-xs font-bold text-slate-600 mb-1">Total Bill Amount (€)</label>
             <input id="bill-amount-input" type="number" step="0.01" min="0.01" required placeholder="0.00" 
                    class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3.5 py-2 text-sm font-bold text-slate-800 focus:outline-none focus:border-emerald-500" />
           </div>
@@ -405,7 +405,7 @@
         </div>
 
         <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1.5">Split with friends (Equally)</label>
+          <label class="block text-xs font-bold text-slate-600 mb-1.5">Split with friends (Equally in €)</label>
           <div id="bill-split-members" class="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
             <!-- Member split checkboxes -->
           </div>
@@ -413,21 +413,21 @@
 
         <div class="pt-2 flex items-center justify-end gap-2">
           <button type="button" onclick="closeModal('add-bill-modal')" class="px-4 py-2 rounded-xl text-slate-500 font-semibold text-xs hover:bg-slate-100">Cancel</button>
-          <button type="submit" class="px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-600/30 transition">Save & Split Bill</button>
+          <button type="submit" class="px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-600/30 transition">Save & Split (€)</button>
         </div>
       </form>
     </div>
   </div>
 
   <!-- ========================================== -->
-  <!-- MODAL: SETTLE DEBT                         -->
+  <!-- MODAL: SETTLE DEBT (EUROS)                 -->
   <!-- ========================================== -->
   <div id="settle-modal" class="modal-backdrop fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center p-4">
     <div class="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-100 space-y-4 animate-slide-down">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <div class="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center text-sm font-bold">💸</div>
-          <h3 class="text-base font-extrabold text-slate-900">Settle Up Debt</h3>
+          <div class="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center text-sm font-bold">💶</div>
+          <h3 class="text-base font-extrabold text-slate-900">Settle Up Debt (€)</h3>
         </div>
         <button onclick="closeModal('settle-modal')" class="text-slate-400 hover:text-slate-600 p-1">✕</button>
       </div>
@@ -438,14 +438,14 @@
         <input type="hidden" id="settle-to-id" />
 
         <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1">Amount Paid ($)</label>
+          <label class="block text-xs font-bold text-slate-600 mb-1">Amount Paid (€)</label>
           <input id="settle-amount-input" type="number" step="0.01" min="0.01" required 
                  class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3.5 py-2 text-sm font-bold text-slate-800 focus:outline-none focus:border-emerald-500" />
         </div>
 
         <div class="pt-2 flex items-center justify-end gap-2">
           <button type="button" onclick="closeModal('settle-modal')" class="px-4 py-2 rounded-xl text-slate-500 font-semibold text-xs hover:bg-slate-100">Cancel</button>
-          <button type="submit" class="px-5 py-2.5 rounded-2xl bg-slate-900 hover:bg-emerald-600 text-white font-bold text-xs shadow-md transition">Confirm Payment</button>
+          <button type="submit" class="px-5 py-2.5 rounded-2xl bg-slate-900 hover:bg-emerald-600 text-white font-bold text-xs shadow-md transition">Confirm Payment (€)</button>
         </div>
       </form>
     </div>

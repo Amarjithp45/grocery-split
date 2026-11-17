@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-CartShare - Collaborative Grocery Shopping & Bill-Splitting Server
+Palachrakk - Collaborative Grocery Shopping & Bill-Splitting Server
 Features:
 - User Registration & Authentication (hashed passwords + session tokens)
 - Identity locking (users can only act as themselves)
 - SQLite database persistence with foreign keys
 - Server-Sent Events (SSE) for instant push updates
-- REST API for items, bills, debts, and settlements
+- REST API for items, bills, debts, and settlements (Euro € currency)
 """
 
 import os
@@ -76,7 +76,7 @@ def init_db():
             )
         """)
 
-        # Migration: Add username/password/salt columns if missing from earlier runs
+        # Migration check for members table
         cur = conn.cursor()
         cur.execute("PRAGMA table_info(members)")
         cols = [r["name"] for r in cur.fetchall()]
@@ -160,22 +160,6 @@ def init_db():
                 FOREIGN KEY (member_id) REFERENCES members(id)
             )
         """)
-
-        # If fresh database, seed sample items
-        cur.execute("SELECT COUNT(*) AS cnt FROM items")
-        if cur.fetchone()["cnt"] == 0:
-            sample_items = [
-                ("Organic Whole Milk", "2 cartons", "Dairy", 1, None),
-                ("Avocados", "4 pcs", "Produce", 0, None),
-                ("Sourdough Bread", "1 loaf", "Bakery", 1, None),
-                ("Eggs (Large Brown)", "1 dozen", "Dairy", 0, None),
-                ("Cold Brew Coffee", "2 bottles", "Drinks", 0, None)
-            ]
-            for title, qty, cat, urgent, added_by in sample_items:
-                conn.execute(
-                    "INSERT INTO items (title, quantity, category, is_urgent, added_by) VALUES (?, ?, ?, ?, ?)",
-                    (title, qty, cat, urgent, added_by)
-                )
     conn.close()
 
 def log_activity(conn, message: str, action_type: str, member_id=None):
@@ -257,7 +241,6 @@ def get_full_state(current_user=None):
     """Retrieve full application state for client consumption."""
     conn = get_db()
     try:
-        # Public member roster (name, avatar, id - no password/salt)
         members = [
             {"id": r["id"], "name": r["name"], "avatar_color": r["avatar_color"]}
             for r in conn.execute("SELECT id, name, avatar_color FROM members ORDER BY name ASC").fetchall()
@@ -308,7 +291,7 @@ def get_full_state(current_user=None):
             LIMIT 50
         """).fetchall()]
 
-        # Net balance calculation
+        # Net balance calculation (in Euros)
         net_balances = {m["id"]: 0.0 for m in members}
         for b in bills:
             net_balances[b["paid_by"]] = net_balances.get(b["paid_by"], 0.0) + b["total_amount"]
@@ -361,7 +344,7 @@ def get_full_state(current_user=None):
     finally:
         conn.close()
 
-class CartShareRequestHandler(BaseHTTPRequestHandler):
+class PalachrakkRequestHandler(BaseHTTPRequestHandler):
     def end_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
@@ -412,7 +395,6 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/events":
-            # Server-Sent Events stream for real-time mobile push
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
@@ -508,7 +490,7 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
                         member_id = cur.lastrowid
                         token = secrets.token_hex(32)
                         cur.execute("INSERT INTO sessions (token, member_id) VALUES (?, ?)", (token, member_id))
-                        log_activity(conn, f"{name} registered and joined CartShare", "member_joined", member_id)
+                        log_activity(conn, f"{name} registered and joined Palachrakk", "member_joined", member_id)
 
                     user_obj = {"id": member_id, "name": name, "username": username, "avatar_color": avatar_color}
                     broadcast_event("state_updated", {
@@ -576,13 +558,14 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
                 self.send_error_json("Authentication required. Please log in.", status=401)
                 return
 
-            # 1. Add Grocery Item (Identity locked to current_user)
+            # 1. Add Grocery Item (Records created_at timestamp and locked identity)
             if path == "/api/items":
                 title = body.get("title", "").strip()
                 quantity = body.get("quantity", "1").strip() or "1"
                 category = body.get("category", "Pantry").strip() or "Pantry"
                 is_urgent = 1 if body.get("is_urgent") else 0
-                added_by = current_user["id"]  # Strictly derived from session!
+                added_by = current_user["id"]
+                now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
                 if not title:
                     self.send_error_json("Item name is required")
@@ -591,8 +574,8 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
                 with conn:
                     cur = conn.cursor()
                     cur.execute(
-                        "INSERT INTO items (title, quantity, category, is_urgent, added_by) VALUES (?, ?, ?, ?, ?)",
-                        (title, quantity, category, is_urgent, added_by)
+                        "INSERT INTO items (title, quantity, category, is_urgent, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                        (title, quantity, category, is_urgent, added_by, now_str)
                     )
                     item_id = cur.lastrowid
                     log_activity(conn, f"{current_user['name']} added: {title} ({quantity})", "item_added", added_by)
@@ -601,13 +584,14 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
                     "action": "item_added",
                     "title": title,
                     "quantity": quantity,
+                    "created_at": now_str,
                     "actor": current_user["name"],
                     "actor_id": current_user["id"]
                 })
                 self.send_json({"success": True, "id": item_id})
                 return
 
-            # 2. Toggle Item Bought Status (Identity locked to current_user)
+            # 2. Toggle Item Bought / Checked Out Status (Records bought_at timestamp)
             if path == "/api/items/toggle":
                 item_id = body.get("item_id")
                 if not item_id:
@@ -623,7 +607,8 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
 
                     new_status = 0 if item["is_bought"] else 1
                     bought_by = current_user["id"] if new_status == 1 else None
-                    bought_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") if new_status == 1 else None
+                    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+                    bought_at = now_str if new_status == 1 else None
 
                     cur.execute(
                         "UPDATE items SET is_bought = ?, bought_by = ?, bought_at = ? WHERE id = ?",
@@ -631,7 +616,7 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
                     )
 
                     msg = (
-                        f"{current_user['name']} bought: {item['title']}"
+                        f"{current_user['name']} checked out / bought: {item['title']}"
                         if new_status
                         else f"{current_user['name']} moved back to cart: {item['title']}"
                     )
@@ -641,6 +626,7 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
                     "action": "item_toggled",
                     "title": item["title"],
                     "is_bought": bool(new_status),
+                    "bought_at": bought_at,
                     "actor": current_user["name"],
                     "actor_id": current_user["id"]
                 })
@@ -686,7 +672,7 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
                 self.send_json({"success": True})
                 return
 
-            # 5. Add Supermarket Bill and Split
+            # 5. Add Supermarket Bill and Split (in Euro €)
             if path == "/api/bills":
                 store_name = body.get("store_name", "").strip() or "Supermarket"
                 total_amount = float(body.get("total_amount", 0.0))
@@ -725,7 +711,7 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
 
                     log_activity(
                         conn, 
-                        f"{current_user['name']} recorded a ${total_amount:.2f} bill for {store_name} (Paid by {payer_name})",
+                        f"{current_user['name']} recorded a €{total_amount:.2f} bill for {store_name} (Paid by {payer_name})",
                         "bill_added", 
                         current_user["id"]
                     )
@@ -741,9 +727,9 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
                 self.send_json({"success": True, "bill_id": bill_id})
                 return
 
-            # 6. Settle Debt Between Friends (from_id locked to current_user)
+            # 6. Settle Debt Between Friends (in Euro €)
             if path == "/api/settlements":
-                from_id = current_user["id"]  # You can only log debts you pay
+                from_id = current_user["id"]
                 to_id = int(body.get("to_id", 0))
                 amount = float(body.get("amount", 0.0))
                 note = body.get("note", "").strip() or "Debt settlement"
@@ -766,7 +752,7 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
 
                     log_activity(
                         conn,
-                        f"{current_user['name']} paid ${amount:.2f} to {to_name} (Settled)",
+                        f"{current_user['name']} paid €{amount:.2f} to {to_name} (Settled)",
                         "settlement_recorded",
                         from_id
                     )
@@ -801,23 +787,23 @@ def get_local_ip():
 def run_server(port=8000):
     init_db()
     server_address = ("0.0.0.0", port)
-    httpd = ThreadingHTTPServer(server_address, CartShareRequestHandler)
+    httpd = ThreadingHTTPServer(server_address, PalachrakkRequestHandler)
     local_ip = get_local_ip()
 
     print("=" * 65)
-    print(" 🛒 CartShare - Group Grocery & Bill-Splitting Website")
+    print(" 🛒 Palachrakk - Group Grocery & Bill-Splitting Website")
     print("=" * 65)
     print(f" ▸ Local Access:       http://localhost:{port}")
     print(f" ▸ Phone / Wi-Fi URL:  http://{local_ip}:{port}")
     print("=" * 65)
-    print(" Auth security & mobile push notifications enabled!")
+    print(" Currency: Euro (€) | App Name: Palachrakk | Live Sync active")
     print("=" * 65)
     sys.stdout.flush()
 
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping CartShare server...")
+        print("\nStopping Palachrakk server...")
         httpd.server_close()
 
 if __name__ == "__main__":

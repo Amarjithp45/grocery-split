@@ -1,8 +1,10 @@
 /**
- * CartShare Client Application
+ * Palachrakk Client Application
  * Features:
  * - Real User Authentication & Registration (Session Tokens)
  * - Identity Locking (Strict single-user sessions)
+ * - Exact Date & Time for Item Additions and Checkouts
+ * - Euro (€) Currency across all splits and bills
  * - Mobile System Status Bar Notifications (Service Worker showNotification)
  * - Real-Time Server-Sent Events (SSE) Synchronization
  * - Web Audio API Synthesis
@@ -12,7 +14,7 @@
 // Application State
 const state = {
   currentUser: null,
-  authToken: localStorage.getItem('cartshare_token') || null,
+  authToken: localStorage.getItem('palachrakk_token') || localStorage.getItem('cartshare_token') || null,
   members: [],
   activeItems: [],
   boughtItems: [],
@@ -79,8 +81,8 @@ async function handleLogin(e) {
     if (res.ok && data.token) {
       state.authToken = data.token;
       state.currentUser = data.user;
-      localStorage.setItem('cartshare_token', data.token);
-      showToast(`Welcome back, ${data.user.name}!`, 'success');
+      localStorage.setItem('palachrakk_token', data.token);
+      showToast(`Welcome back to Palachrakk, ${data.user.name}!`, 'success');
       showAppScreen();
       loadState();
     } else {
@@ -112,8 +114,8 @@ async function handleRegister(e) {
     if (res.ok && data.token) {
       state.authToken = data.token;
       state.currentUser = data.user;
-      localStorage.setItem('cartshare_token', data.token);
-      showToast(`Welcome to CartShare, ${data.user.name}!`, 'success');
+      localStorage.setItem('palachrakk_token', data.token);
+      showToast(`Welcome to Palachrakk, ${data.user.name}!`, 'success');
       showAppScreen();
       loadState();
     } else {
@@ -137,6 +139,7 @@ async function logout() {
 
   state.authToken = null;
   state.currentUser = null;
+  localStorage.removeItem('palachrakk_token');
   localStorage.removeItem('cartshare_token');
   showAuthScreen();
   showToast('Logged out successfully.', 'info');
@@ -191,11 +194,10 @@ async function requestPhoneNotificationPermission() {
   checkPhoneNotificationStatus();
 
   if (permission === "granted") {
-    showToast("Phone notifications enabled!", "success");
-    // Send immediate test alert to confirm it pops in their status bar
+    showToast("Palachrakk alerts enabled!", "success");
     await sendPhoneNotification(
-      "CartShare Notifications Active! 🛒",
-      "You will now receive alerts in your phone status bar whenever friends add or buy items."
+      "Palachrakk Notifications Active! 🛒",
+      "You will receive alerts in your phone status bar whenever friends add or buy items."
     );
   } else if (permission === "denied") {
     showToast("Notifications were blocked in your browser settings.", "warning");
@@ -212,10 +214,6 @@ function toggleBrowserNotifications() {
   }
 }
 
-/**
- * Triggers a real notification in the phone's system status bar / notification drawer.
- * On mobile devices (Android Chrome & iOS Safari PWA), this MUST be called via the Service Worker.
- */
 async function sendPhoneNotification(title, body) {
   if (!state.notificationsEnabled || !("Notification" in window) || Notification.permission !== "granted") {
     return;
@@ -226,12 +224,11 @@ async function sendPhoneNotification(title, body) {
     icon: '/icon-192.png',
     badge: '/icon-192.png',
     vibrate: [200, 100, 200],
-    tag: 'cartshare-' + Date.now(),
+    tag: 'palachrakk-' + Date.now(),
     renotify: true,
     requireInteraction: false
   };
 
-  // 1. Primary mobile route: ServiceWorkerRegistration.showNotification
   if ('serviceWorker' in navigator) {
     try {
       const reg = await navigator.serviceWorker.ready;
@@ -244,7 +241,6 @@ async function sendPhoneNotification(title, body) {
     }
   }
 
-  // 2. Desktop fallback
   try {
     new Notification(title, options);
   } catch (e) {
@@ -363,13 +359,12 @@ function connectSSE() {
 }
 
 function handleLiveEvent(data) {
-  // If the action was performed by the currently logged-in user, skip sending a phone notification to yourself
   const isMe = state.currentUser && state.currentUser.id === data.actor_id;
 
   if (data.action === 'item_added') {
     if (!isMe) {
       sendPhoneNotification(
-        "🛒 New Grocery Item Added",
+        "🛒 Palachrakk: New Item Added",
         `${data.actor || 'A friend'} added "${data.title}" (${data.quantity || '1'}) to the grocery list.`
       );
       playSound('add');
@@ -379,7 +374,7 @@ function handleLiveEvent(data) {
     if (data.is_bought) {
       if (!isMe) {
         sendPhoneNotification(
-          "✓ Grocery Item Purchased",
+          "✓ Palachrakk: Item Checked Out",
           `${data.actor || 'A friend'} bought "${data.title}" at the supermarket!`
         );
         playSound('buy');
@@ -389,21 +384,21 @@ function handleLiveEvent(data) {
   } else if (data.action === 'bill_added') {
     if (!isMe) {
       sendPhoneNotification(
-        "🧾 New Grocery Bill Added",
-        `${data.payer} added a $${Number(data.amount).toFixed(2)} bill for ${data.store}`
+        "🧾 Palachrakk: New Bill Added (€)",
+        `${data.payer} added a €${Number(data.amount).toFixed(2)} bill for ${data.store}`
       );
       playSound('bill');
     }
-    showToast(`${data.payer} added a $${Number(data.amount).toFixed(2)} bill for ${data.store}!`, 'purple');
+    showToast(`${data.payer} added a €${Number(data.amount).toFixed(2)} bill for ${data.store}!`, 'purple');
   } else if (data.action === 'settlement') {
     if (!isMe) {
       sendPhoneNotification(
-        "💰 Debt Settled",
-        `${data.from} paid $${Number(data.amount).toFixed(2)} to ${data.to}`
+        "💶 Palachrakk: Debt Settled",
+        `${data.from} paid €${Number(data.amount).toFixed(2)} to ${data.to}`
       );
       playSound('settle');
     }
-    showToast(`${data.from} paid $${Number(data.amount).toFixed(2)} to ${data.to} (Settled)`, 'success');
+    showToast(`${data.from} paid €${Number(data.amount).toFixed(2)} to ${data.to} (Settled)`, 'success');
   } else if (data.action === 'cleared_bought') {
     if (!isMe) {
       playSound('clear');
@@ -452,7 +447,7 @@ async function loadState(initial = false) {
 }
 
 // =========================================================
-// 5. RENDERERS (Strictly Locked Identity)
+// 5. RENDERERS (With Date, Time & Euro €)
 // =========================================================
 
 function renderLockedUserProfile() {
@@ -466,8 +461,6 @@ function renderLockedUserProfile() {
   }
 
   if (pill) {
-    // Locked identity: Displays the user's name, avatar, and a Logout button.
-    // NO DROPDOWN TO SWITCH OR SPOOF ANYONE ELSE!
     pill.innerHTML = `
       <div class="flex items-center gap-2 bg-white/95 border border-slate-200/90 rounded-2xl px-2.5 py-1.5 shadow-xs">
         <span class="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-black shadow-xs" style="background-color: ${state.currentUser.avatar_color || '#10b981'}">
@@ -528,13 +521,19 @@ function renderGroceryList() {
               ${item.is_urgent ? '<span class="bg-rose-100 text-rose-700 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-rose-200">★ URGENT</span>' : ''}
               <span class="badge-${item.category} text-[10px] font-bold px-2 py-0.5 rounded-lg">${item.category}</span>
             </div>
-            <div class="flex items-center gap-2 mt-1 text-xs text-slate-400">
+            
+            <!-- Date & Time Added + User -->
+            <div class="flex items-center gap-2 mt-1.5 text-xs text-slate-500 flex-wrap">
               <span class="font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100/60">${escapeHtml(item.quantity)}</span>
               <span>•</span>
-              <span class="flex items-center gap-1">
+              <span class="flex items-center gap-1 font-medium text-slate-600">
                 <span class="w-2 h-2 rounded-full inline-block" style="background-color: ${item.added_by_color || '#94a3b8'}"></span>
-                ${escapeHtml(item.added_by_name || 'Group')}
+                Added by <strong class="text-slate-700">${escapeHtml(item.added_by_name || 'Group')}</strong>
               </span>
+              ${item.created_at ? `
+                <span>•</span>
+                <span class="text-[11px] text-slate-400 font-medium">🕒 ${formatDateTime(item.created_at)}</span>
+              ` : ''}
             </div>
           </div>
         </div>
@@ -545,7 +544,7 @@ function renderGroceryList() {
     `).join('');
   }
 
-  // Bought items tray
+  // Bought items tray with Checkout Date & Time
   if (boughtCountSpan) boughtCountSpan.textContent = state.boughtItems.length;
   if (clearBoughtBtn) {
     clearBoughtBtn.style.display = state.boughtItems.length > 0 ? 'inline-flex' : 'none';
@@ -564,7 +563,12 @@ function renderGroceryList() {
             <div class="min-w-0">
               <span class="line-through text-slate-400 font-medium">${escapeHtml(item.title)}</span>
               <span class="text-slate-400 text-[11px] ml-1.5">(${escapeHtml(item.quantity)})</span>
-              <div class="text-[10px] text-slate-400">Bought by <strong class="text-slate-600">${escapeHtml(item.bought_by_name || 'Someone')}</strong></div>
+              
+              <!-- Checkout date & time -->
+              <div class="text-[11px] text-slate-500 mt-0.5">
+                Bought by <strong class="text-slate-700">${escapeHtml(item.bought_by_name || 'Someone')}</strong>
+                ${item.bought_at ? `<span class="text-slate-400 ml-1.5">• 🕒 ${formatDateTime(item.bought_at)}</span>` : ''}
+              </div>
             </div>
           </div>
           <button onclick="deleteItem(${item.id})" class="text-slate-300 hover:text-rose-500 p-1.5" title="Remove permanently">
@@ -610,28 +614,28 @@ function renderBillsAndSplits() {
   const myBalanceEl = document.getElementById('stat-my-balance');
   const myBalanceLabel = document.getElementById('stat-my-balance-label');
 
-  if (totalSpentEl) totalSpentEl.textContent = `$${Number(state.stats.total_spent || 0).toFixed(2)}`;
+  if (totalSpentEl) totalSpentEl.textContent = `€${Number(state.stats.total_spent || 0).toFixed(2)}`;
 
   const myBalObj = state.balances.find(b => b.id === (state.currentUser ? state.currentUser.id : null));
   const myBal = myBalObj ? myBalObj.balance : 0.0;
 
   if (myBalanceEl) {
     if (myBal > 0.01) {
-      myBalanceEl.textContent = `+$${myBal.toFixed(2)}`;
+      myBalanceEl.textContent = `+€${myBal.toFixed(2)}`;
       myBalanceEl.className = 'text-2xl font-extrabold text-emerald-600';
       if (myBalanceLabel) myBalanceLabel.textContent = 'You are owed';
     } else if (myBal < -0.01) {
-      myBalanceEl.textContent = `-$${Math.abs(myBal).toFixed(2)}`;
+      myBalanceEl.textContent = `-€${Math.abs(myBal).toFixed(2)}`;
       myBalanceEl.className = 'text-2xl font-extrabold text-rose-600';
       if (myBalanceLabel) myBalanceLabel.textContent = 'You owe the group';
     } else {
-      myBalanceEl.textContent = '$0.00';
+      myBalanceEl.textContent = '€0.00';
       myBalanceEl.className = 'text-2xl font-extrabold text-slate-800';
       if (myBalanceLabel) myBalanceLabel.textContent = 'All settled up';
     }
   }
 
-  // Debt transfers cards (Who owes whom)
+  // Debt transfers cards in Euros (€)
   const transfersContainer = document.getElementById('transfers-container');
   if (transfersContainer) {
     if (state.transfers.length === 0) {
@@ -639,7 +643,7 @@ function renderBillsAndSplits() {
         <div class="p-6 text-center bg-emerald-50/60 rounded-2xl border border-emerald-100">
           <div class="text-3xl mb-1">🎉</div>
           <div class="text-sm font-bold text-emerald-800">Everyone is fully squared away!</div>
-          <div class="text-xs text-emerald-600 mt-0.5">No outstanding grocery debts between friends.</div>
+          <div class="text-xs text-emerald-600 mt-0.5">No outstanding grocery debts between friends in €.</div>
         </div>
       `;
     } else {
@@ -650,13 +654,13 @@ function renderBillsAndSplits() {
           <div class="p-4 rounded-2xl bg-white border ${isMeFrom ? 'border-rose-200 bg-rose-50/30' : isMeTo ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-100'} shadow-sm flex items-center justify-between gap-3">
             <div class="flex items-center gap-3">
               <div class="w-10 h-10 rounded-2xl flex items-center justify-center font-bold text-sm bg-slate-100 text-slate-700">
-                💸
+                💶
               </div>
               <div>
                 <div class="text-xs text-slate-500 font-medium">
                   <strong class="text-slate-800 font-bold">${escapeHtml(t.from_name)}</strong> owes <strong class="text-slate-800 font-bold">${escapeHtml(t.to_name)}</strong>
                 </div>
-                <div class="text-lg font-black text-slate-900 mt-0.5">$${Number(t.amount).toFixed(2)}</div>
+                <div class="text-lg font-black text-slate-900 mt-0.5">€${Number(t.amount).toFixed(2)}</div>
               </div>
             </div>
             ${isMeFrom ? `
@@ -674,13 +678,13 @@ function renderBillsAndSplits() {
     }
   }
 
-  // Bills list
+  // Bills list in Euros (€)
   const billsContainer = document.getElementById('bills-list-container');
   if (billsContainer) {
     if (state.bills.length === 0) {
       billsContainer.innerHTML = `
         <div class="text-center py-8 text-xs text-slate-400">
-          No bills recorded yet. Click "Add Supermarket Bill" when someone pays at the checkout counter!
+          No bills recorded yet. Click "Add Supermarket Bill" when someone pays in Euros at checkout!
         </div>
       `;
     } else {
@@ -697,12 +701,12 @@ function renderBillsAndSplits() {
               </div>
             </div>
             <div class="text-right">
-              <div class="text-base font-black text-slate-900">$${Number(b.total_amount).toFixed(2)}</div>
+              <div class="text-base font-black text-slate-900">€${Number(b.total_amount).toFixed(2)}</div>
               <div class="text-[10px] text-slate-400">Split by ${b.splits.length} friends</div>
             </div>
           </div>
           <div class="mt-3 pt-2.5 border-t border-slate-50 flex items-center gap-1.5 flex-wrap">
-            <span class="text-[10px] text-slate-400 font-semibold mr-1">Split ($${(b.total_amount / (b.splits.length || 1)).toFixed(2)} each):</span>
+            <span class="text-[10px] text-slate-400 font-semibold mr-1">Split (€${(b.total_amount / (b.splits.length || 1)).toFixed(2)} each):</span>
             ${b.splits.map(s => `
               <span class="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-medium">
                 ${escapeHtml(s.member_name)}
@@ -714,7 +718,7 @@ function renderBillsAndSplits() {
     }
   }
 
-  // Group balances breakdown table
+  // Group balances breakdown table in Euros (€)
   const balancesContainer = document.getElementById('member-balances-container');
   if (balancesContainer) {
     balancesContainer.innerHTML = state.balances.map(m => {
@@ -730,7 +734,7 @@ function renderBillsAndSplits() {
             <span class="font-bold text-slate-700">${escapeHtml(m.name)} ${isMe ? '<span class="text-[10px] text-emerald-600 font-semibold">(You)</span>' : ''}</span>
           </div>
           <div class="font-extrabold ${isPositive ? 'text-emerald-600' : isNegative ? 'text-rose-600' : 'text-slate-400'}">
-            ${isPositive ? '+' : ''}$${m.balance.toFixed(2)}
+            ${isPositive ? '+' : ''}€${m.balance.toFixed(2)}
           </div>
         </div>
       `;
@@ -750,18 +754,18 @@ function renderActivityFeed() {
   container.innerHTML = state.activities.map(a => `
     <div class="flex items-start gap-3 p-3 rounded-2xl bg-white border border-slate-100 shadow-sm text-xs">
       <div class="w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs bg-slate-100 flex-shrink-0 mt-0.5">
-        ${a.action_type === 'item_added' ? '➕' : a.action_type === 'item_toggled' ? '🛒' : a.action_type === 'bill_added' ? '🧾' : a.action_type === 'settlement_recorded' ? '💰' : '📢'}
+        ${a.action_type === 'item_added' ? '➕' : a.action_type === 'item_toggled' ? '🛒' : a.action_type === 'bill_added' ? '🧾' : a.action_type === 'settlement_recorded' ? '💶' : '📢'}
       </div>
       <div class="min-w-0 flex-1">
         <div class="text-slate-800 font-medium leading-relaxed">${escapeHtml(a.message)}</div>
-        <div class="text-[10px] text-slate-400 mt-1">${formatTimeAgo(a.created_at)}</div>
+        <div class="text-[10px] text-slate-400 mt-1">${formatDateTime(a.created_at)}</div>
       </div>
     </div>
   `).join('');
 }
 
 // =========================================================
-// 6. USER ACTIONS (Protected with Token & Locked Identity)
+// 6. USER ACTIONS
 // =========================================================
 
 async function addItem(e) {
@@ -866,7 +870,7 @@ async function submitBill(e) {
   const date = dateInput.value;
 
   if (isNaN(amount) || amount <= 0) {
-    showToast("Please enter a valid bill total.", "warning");
+    showToast("Please enter a valid bill total in Euros.", "warning");
     return;
   }
   if (splitWith.length === 0) {
@@ -892,7 +896,7 @@ async function submitBill(e) {
       closeModal('add-bill-modal');
       amountInput.value = '';
       storeInput.value = '';
-      showToast(`Bill of $${amount.toFixed(2)} added & split!`, 'purple');
+      showToast(`Bill of €${amount.toFixed(2)} added & split!`, 'purple');
       loadState();
     }
   } catch (err) {
@@ -916,7 +920,7 @@ async function submitSettlement(e) {
     if (res.ok) {
       playSound('settle');
       closeModal('settle-modal');
-      showToast("Payment recorded! Balances updated.", "success");
+      showToast(`Payment of €${amount.toFixed(2)} recorded! Balances updated.`, "success");
       loadState();
     }
   } catch (err) {
@@ -1027,16 +1031,25 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-function formatTimeAgo(dateStr) {
+/**
+ * Format timestamp into readable localized Date & Time (e.g., "17 Nov, 6:15 PM")
+ */
+function formatDateTime(dateStr) {
   if (!dateStr) return '';
-  const date = new Date(dateStr.replace(' ', 'T') + 'Z');
-  const now = new Date();
-  const diffSec = Math.floor((now - date) / 1000);
-
-  if (diffSec < 45) return 'just now';
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-  return `${Math.floor(diffSec / 86400)}d ago`;
+  try {
+    const d = new Date(dateStr.endsWith('Z') ? dateStr : dateStr.replace(' ', 'T') + 'Z');
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString(undefined, {
+      day: 'numeric',
+      month: 'short'
+    }) + ', ' + d.toLocaleTimeString(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  } catch (e) {
+    return dateStr;
+  }
 }
 
 // PWA Installation & Service Worker
@@ -1045,9 +1058,9 @@ let deferredPrompt = null;
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then((reg) => {
-      console.log('CartShare ServiceWorker registered:', reg.scope);
+      console.log('Palachrakk ServiceWorker registered:', reg.scope);
     }).catch(err => {
-      console.log('ServiceWorker registration note:', err);
+      console.log('ServiceWorker note:', err);
     });
   });
 }
@@ -1067,7 +1080,7 @@ function triggerPwaInstall() {
     deferredPrompt.prompt();
     deferredPrompt.userChoice.then((choiceResult) => {
       if (choiceResult.outcome === 'accepted') {
-        showToast('CartShare app installed to your home screen!', 'success');
+        showToast('Palachrakk app installed to your home screen!', 'success');
       }
       deferredPrompt = null;
       const installBtn = document.getElementById('pwa-install-btn');
