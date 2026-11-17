@@ -1,11 +1,18 @@
 /**
  * CartShare Client Application
- * Real-time collaborative grocery checklist & expense splitting
+ * Features:
+ * - Real User Authentication & Registration (Session Tokens)
+ * - Identity Locking (Strict single-user sessions)
+ * - Mobile System Status Bar Notifications (Service Worker showNotification)
+ * - Real-Time Server-Sent Events (SSE) Synchronization
+ * - Web Audio API Synthesis
+ * - Debt Simplification & Expense Ledger
  */
 
 // Application State
 const state = {
-  currentMemberId: null,
+  currentUser: null,
+  authToken: localStorage.getItem('cartshare_token') || null,
   members: [],
   activeItems: [],
   boughtItems: [],
@@ -22,104 +29,226 @@ const state = {
   isConnected: false
 };
 
-// Web Audio API Sound Synthesizer (No external audio files needed!)
-const audioCtx = (typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext)) 
-  ? new (window.AudioContext || window.webkitAudioContext)() 
-  : null;
+// =========================================================
+// 1. AUTHENTICATION & SESSION MANAGEMENT
+// =========================================================
 
-function playTone(freq, duration, type = 'sine', gainVal = 0.15) {
-  if (!state.soundEnabled || !audioCtx) return;
+function getAuthHeaders() {
+  const headers = { 'Content-Type': 'application/json' };
+  if (state.authToken) {
+    headers['Authorization'] = `Bearer ${state.authToken}`;
+  }
+  return headers;
+}
+
+function switchAuthTab(tab) {
+  const loginForm = document.getElementById('login-form');
+  const registerForm = document.getElementById('register-form');
+  const loginTab = document.getElementById('auth-tab-login');
+  const registerTab = document.getElementById('auth-tab-register');
+  const errorBox = document.getElementById('auth-error');
+  if (errorBox) errorBox.classList.add('hidden');
+
+  if (tab === 'login') {
+    loginForm.classList.remove('hidden');
+    registerForm.classList.add('hidden');
+    loginTab.className = 'flex-1 py-2 text-xs font-bold rounded-xl bg-white text-slate-900 shadow-sm transition';
+    registerTab.className = 'flex-1 py-2 text-xs font-bold rounded-xl text-slate-500 hover:text-slate-800 transition';
+  } else {
+    loginForm.classList.add('hidden');
+    registerForm.classList.remove('hidden');
+    registerTab.className = 'flex-1 py-2 text-xs font-bold rounded-xl bg-white text-slate-900 shadow-sm transition';
+    loginTab.className = 'flex-1 py-2 text-xs font-bold rounded-xl text-slate-500 hover:text-slate-800 transition';
+  }
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value.trim();
+  const errorBox = document.getElementById('auth-error');
+
   try {
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume();
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+
+    if (res.ok && data.token) {
+      state.authToken = data.token;
+      state.currentUser = data.user;
+      localStorage.setItem('cartshare_token', data.token);
+      showToast(`Welcome back, ${data.user.name}!`, 'success');
+      showAppScreen();
+      loadState();
+    } else {
+      if (errorBox) {
+        errorBox.textContent = data.error || 'Invalid username or password.';
+        errorBox.classList.remove('hidden');
+      }
     }
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-    gain.gain.setValueAtTime(gainVal, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + duration);
-  } catch (e) {
-    console.warn("Audio playback error:", e);
+  } catch (err) {
+    console.error('Login error:', err);
   }
 }
 
-function playSound(type) {
-  if (!state.soundEnabled) return;
-  if (type === 'buy') {
-    // Two-tone cheerful success chime
-    playTone(523.25, 0.1, 'sine', 0.15); // C5
-    setTimeout(() => playTone(659.25, 0.18, 'sine', 0.15), 90); // E5
-  } else if (type === 'add') {
-    playTone(587.33, 0.12, 'triangle', 0.12); // D5
-  } else if (type === 'bill') {
-    // Arpeggio
-    playTone(440.0, 0.08, 'sine', 0.12);
-    setTimeout(() => playTone(554.37, 0.08, 'sine', 0.12), 70);
-    setTimeout(() => playTone(659.25, 0.16, 'sine', 0.14), 140);
-  } else if (type === 'settle') {
-    playTone(659.25, 0.1, 'sine', 0.15);
-    setTimeout(() => playTone(880.0, 0.22, 'sine', 0.15), 100);
-  } else if (type === 'clear') {
-    playTone(440.0, 0.08, 'triangle', 0.1);
-    setTimeout(() => playTone(349.23, 0.14, 'triangle', 0.1), 80);
+async function handleRegister(e) {
+  e.preventDefault();
+  const name = document.getElementById('reg-name').value.trim();
+  const username = document.getElementById('reg-username').value.trim();
+  const password = document.getElementById('reg-password').value.trim();
+  const errorBox = document.getElementById('auth-error');
+
+  try {
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, username, password })
+    });
+    const data = await res.json();
+
+    if (res.ok && data.token) {
+      state.authToken = data.token;
+      state.currentUser = data.user;
+      localStorage.setItem('cartshare_token', data.token);
+      showToast(`Welcome to CartShare, ${data.user.name}!`, 'success');
+      showAppScreen();
+      loadState();
+    } else {
+      if (errorBox) {
+        errorBox.textContent = data.error || 'Registration failed.';
+        errorBox.classList.remove('hidden');
+      }
+    }
+  } catch (err) {
+    console.error('Registration error:', err);
   }
 }
 
-// Browser Push Notifications
-function initBrowserNotifications() {
+async function logout() {
+  try {
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+  } catch (e) {}
+
+  state.authToken = null;
+  state.currentUser = null;
+  localStorage.removeItem('cartshare_token');
+  showAuthScreen();
+  showToast('Logged out successfully.', 'info');
+}
+
+function showAuthScreen() {
+  document.getElementById('auth-screen').classList.remove('hidden');
+  document.getElementById('auth-screen').classList.add('flex');
+  document.getElementById('app-screen').classList.add('hidden');
+  document.getElementById('app-screen').classList.remove('flex');
+}
+
+function showAppScreen() {
+  document.getElementById('auth-screen').classList.add('hidden');
+  document.getElementById('auth-screen').classList.remove('flex');
+  document.getElementById('app-screen').classList.remove('hidden');
+  document.getElementById('app-screen').classList.add('flex');
+}
+
+// =========================================================
+// 2. MOBILE SYSTEM STATUS BAR NOTIFICATIONS (Service Worker)
+// =========================================================
+
+function checkPhoneNotificationStatus() {
+  const banner = document.getElementById('notif-permission-banner');
+  const btn = document.getElementById('notif-toggle-btn');
+
   if ("Notification" in window) {
     if (Notification.permission === "granted") {
       state.notificationsEnabled = true;
+      if (banner) banner.classList.add('hidden');
+      if (btn) btn.className = 'p-2 rounded-xl transition bg-emerald-100 text-emerald-700 font-medium';
+    } else if (Notification.permission === "default") {
+      state.notificationsEnabled = false;
+      if (banner) banner.classList.remove('hidden');
+      if (btn) btn.className = 'p-2 rounded-xl transition text-slate-400 hover:text-slate-600';
+    } else {
+      state.notificationsEnabled = false;
+      if (banner) banner.classList.add('hidden');
+      if (btn) btn.className = 'p-2 rounded-xl transition text-rose-400';
     }
-    updateNotificationIcon();
+  }
+}
+
+async function requestPhoneNotificationPermission() {
+  if (!("Notification" in window)) {
+    showToast("Notifications not supported on this browser.", "warning");
+    return;
+  }
+
+  const permission = await Notification.requestPermission();
+  checkPhoneNotificationStatus();
+
+  if (permission === "granted") {
+    showToast("Phone notifications enabled!", "success");
+    // Send immediate test alert to confirm it pops in their status bar
+    await sendPhoneNotification(
+      "CartShare Notifications Active! 🛒",
+      "You will now receive alerts in your phone status bar whenever friends add or buy items."
+    );
+  } else if (permission === "denied") {
+    showToast("Notifications were blocked in your browser settings.", "warning");
   }
 }
 
 function toggleBrowserNotifications() {
-  if (!("Notification" in window)) {
-    showToast("Browser notifications not supported on this device.", "warning");
+  if (Notification.permission !== "granted") {
+    requestPhoneNotificationPermission();
+  } else {
+    state.notificationsEnabled = !state.notificationsEnabled;
+    showToast(state.notificationsEnabled ? "Phone notifications unmuted" : "Phone notifications muted", "info");
+    checkPhoneNotificationStatus();
+  }
+}
+
+/**
+ * Triggers a real notification in the phone's system status bar / notification drawer.
+ * On mobile devices (Android Chrome & iOS Safari PWA), this MUST be called via the Service Worker.
+ */
+async function sendPhoneNotification(title, body) {
+  if (!state.notificationsEnabled || !("Notification" in window) || Notification.permission !== "granted") {
     return;
   }
-  if (Notification.permission === "granted") {
-    state.notificationsEnabled = !state.notificationsEnabled;
-    showToast(state.notificationsEnabled ? "Notifications enabled" : "Notifications muted", "info");
-    updateNotificationIcon();
-  } else if (Notification.permission !== "denied") {
-    Notification.requestPermission().then(permission => {
-      if (permission === "granted") {
-        state.notificationsEnabled = true;
-        showToast("Notifications enabled!", "success");
-        new Notification("CartShare", {
-          body: "You will now get alerts when friends add items or supermarket bills!",
-          icon: "🛒"
-        });
-      }
-      updateNotificationIcon();
-    });
-  } else {
-    showToast("Notifications blocked in browser settings.", "warning");
-  }
-}
 
-function updateNotificationIcon() {
-  const btn = document.getElementById("notif-toggle-btn");
-  if (btn) {
-    btn.className = `p-2 rounded-xl transition ${state.notificationsEnabled ? 'bg-emerald-100 text-emerald-700 font-medium' : 'text-slate-400 hover:text-slate-600'}`;
-  }
-}
+  const options = {
+    body: body,
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    vibrate: [200, 100, 200],
+    tag: 'cartshare-' + Date.now(),
+    renotify: true,
+    requireInteraction: false
+  };
 
-function sendBrowserNotification(title, body) {
-  if (state.notificationsEnabled && "Notification" in window && Notification.permission === "granted") {
+  // 1. Primary mobile route: ServiceWorkerRegistration.showNotification
+  if ('serviceWorker' in navigator) {
     try {
-      new Notification(title, { body, icon: "🛒" });
-    } catch (e) {
-      console.warn("Notification error:", e);
+      const reg = await navigator.serviceWorker.ready;
+      if (reg && reg.showNotification) {
+        await reg.showNotification(title, options);
+        return;
+      }
+    } catch (err) {
+      console.warn("ServiceWorker notification failed, using desktop fallback:", err);
     }
+  }
+
+  // 2. Desktop fallback
+  try {
+    new Notification(title, options);
+  } catch (e) {
+    console.warn("Desktop notification error:", e);
   }
 }
 
@@ -151,7 +280,59 @@ function showToast(message, type = 'info') {
   }, 4000);
 }
 
-// Server-Sent Events (SSE) Real-Time Connection
+// Audio Synthesis (Web Audio API)
+const audioCtx = (typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext)) 
+  ? new (window.AudioContext || window.webkitAudioContext)() 
+  : null;
+
+function playTone(freq, duration, type = 'sine', gainVal = 0.15) {
+  if (!state.soundEnabled || !audioCtx) return;
+  try {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    gain.gain.setValueAtTime(gainVal, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+  } catch (e) {}
+}
+
+function playSound(type) {
+  if (!state.soundEnabled) return;
+  if (type === 'buy') {
+    playTone(523.25, 0.1, 'sine', 0.15);
+    setTimeout(() => playTone(659.25, 0.18, 'sine', 0.15), 90);
+  } else if (type === 'add') {
+    playTone(587.33, 0.12, 'triangle', 0.12);
+  } else if (type === 'bill') {
+    playTone(440.0, 0.08, 'sine', 0.12);
+    setTimeout(() => playTone(554.37, 0.08, 'sine', 0.12), 70);
+    setTimeout(() => playTone(659.25, 0.16, 'sine', 0.14), 140);
+  } else if (type === 'settle') {
+    playTone(659.25, 0.1, 'sine', 0.15);
+    setTimeout(() => playTone(880.0, 0.22, 'sine', 0.15), 100);
+  } else if (type === 'clear') {
+    playTone(440.0, 0.08, 'triangle', 0.1);
+    setTimeout(() => playTone(349.23, 0.14, 'triangle', 0.1), 80);
+  }
+}
+
+function toggleAudio() {
+  state.soundEnabled = !state.soundEnabled;
+  const btn = document.getElementById('sound-toggle-btn');
+  if (btn) btn.innerHTML = state.soundEnabled ? '🔊' : '🔇';
+  showToast(state.soundEnabled ? "Audio chimes enabled" : "Audio muted", "info");
+}
+
+// =========================================================
+// 3. REAL-TIME SERVER-SENT EVENTS (SSE)
+// =========================================================
+
 function connectSSE() {
   const liveIndicator = document.getElementById('live-indicator');
   const liveText = document.getElementById('live-text');
@@ -168,7 +349,7 @@ function connectSSE() {
     try {
       const data = JSON.parse(e.data);
       handleLiveEvent(data);
-      loadState(false); // silent refresh
+      loadState(false);
     } catch (err) {
       console.error("SSE parse error", err);
     }
@@ -182,35 +363,70 @@ function connectSSE() {
 }
 
 function handleLiveEvent(data) {
+  // If the action was performed by the currently logged-in user, skip sending a phone notification to yourself
+  const isMe = state.currentUser && state.currentUser.id === data.actor_id;
+
   if (data.action === 'item_added') {
-    showToast(`${data.added_by || 'Someone'} added: ${data.title}`, 'info');
-    sendBrowserNotification("CartShare: New Grocery Item", `${data.added_by || 'Someone'} added "${data.title}"`);
-    playSound('add');
+    if (!isMe) {
+      sendPhoneNotification(
+        "🛒 New Grocery Item Added",
+        `${data.actor || 'A friend'} added "${data.title}" (${data.quantity || '1'}) to the grocery list.`
+      );
+      playSound('add');
+    }
+    showToast(`${data.actor || 'Someone'} added: ${data.title}`, 'info');
   } else if (data.action === 'item_toggled') {
     if (data.is_bought) {
+      if (!isMe) {
+        sendPhoneNotification(
+          "✓ Grocery Item Purchased",
+          `${data.actor || 'A friend'} bought "${data.title}" at the supermarket!`
+        );
+        playSound('buy');
+      }
       showToast(`${data.actor || 'Someone'} bought: ${data.title}`, 'success');
-      sendBrowserNotification("CartShare: Item Bought", `${data.actor || 'Someone'} bought "${data.title}"!`);
-      playSound('buy');
     }
   } else if (data.action === 'bill_added') {
+    if (!isMe) {
+      sendPhoneNotification(
+        "🧾 New Grocery Bill Added",
+        `${data.payer} added a $${Number(data.amount).toFixed(2)} bill for ${data.store}`
+      );
+      playSound('bill');
+    }
     showToast(`${data.payer} added a $${Number(data.amount).toFixed(2)} bill for ${data.store}!`, 'purple');
-    sendBrowserNotification("CartShare: New Bill Added", `${data.payer} added a $${Number(data.amount).toFixed(2)} bill for ${data.store}`);
-    playSound('bill');
   } else if (data.action === 'settlement') {
+    if (!isMe) {
+      sendPhoneNotification(
+        "💰 Debt Settled",
+        `${data.from} paid $${Number(data.amount).toFixed(2)} to ${data.to}`
+      );
+      playSound('settle');
+    }
     showToast(`${data.from} paid $${Number(data.amount).toFixed(2)} to ${data.to} (Settled)`, 'success');
-    playSound('settle');
   } else if (data.action === 'cleared_bought') {
+    if (!isMe) {
+      playSound('clear');
+    }
     showToast(`${data.actor} cleared purchased items`, 'info');
-    playSound('clear');
   }
 }
 
-// Fetch Full Application State
-async function loadState(showLoading = false) {
-  try {
-    const res = await fetch('/api/state');
-    const data = await res.json();
+// =========================================================
+// 4. FETCH APPLICATION DATA
+// =========================================================
 
+async function loadState(initial = false) {
+  try {
+    const res = await fetch('/api/state', { headers: getAuthHeaders() });
+    
+    if (res.status === 401) {
+      showAuthScreen();
+      return;
+    }
+
+    const data = await res.json();
+    state.currentUser = data.currentUser || state.currentUser;
     state.members = data.members || [];
     state.activeItems = data.active_items || [];
     state.boughtItems = data.bought_items || [];
@@ -220,56 +436,59 @@ async function loadState(showLoading = false) {
     state.activities = data.activities || [];
     state.stats = data.stats || {};
 
-    // Restore or set current member
-    const savedMemberId = localStorage.getItem('cartshare_member_id');
-    if (savedMemberId && state.members.some(m => m.id == savedMemberId)) {
-      state.currentMemberId = parseInt(savedMemberId);
-    } else if (state.members.length > 0 && !state.currentMemberId) {
-      state.currentMemberId = state.members[0].id;
-      localStorage.setItem('cartshare_member_id', state.currentMemberId);
+    if (state.currentUser) {
+      showAppScreen();
+      renderLockedUserProfile();
+      renderGroceryList();
+      renderBillsAndSplits();
+      renderActivityFeed();
+      checkPhoneNotificationStatus();
+    } else {
+      showAuthScreen();
     }
-
-    renderHeader();
-    renderGroceryList();
-    renderBillsAndSplits();
-    renderActivityFeed();
   } catch (err) {
     console.error("Failed to load state:", err);
   }
 }
 
-// UI Renderers
-function renderHeader() {
-  const memberSelect = document.getElementById('current-member-badge');
-  const currentMember = state.members.find(m => m.id === state.currentMemberId);
+// =========================================================
+// 5. RENDERERS (Strictly Locked Identity)
+// =========================================================
 
-  if (memberSelect && currentMember) {
-    memberSelect.innerHTML = `
-      <div class="flex items-center gap-2 cursor-pointer bg-white/90 border border-slate-200/80 rounded-2xl px-3 py-1.5 shadow-sm hover:border-emerald-500 transition" onclick="openMemberModal()">
-        <span class="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm" style="background-color: ${currentMember.avatar_color}">
-          ${currentMember.name[0].toUpperCase()}
+function renderLockedUserProfile() {
+  const pill = document.getElementById('user-profile-pill');
+  const addIndicator = document.getElementById('logged-in-adding-indicator');
+
+  if (!state.currentUser) return;
+
+  if (addIndicator) {
+    addIndicator.textContent = `Adding as ${state.currentUser.name}`;
+  }
+
+  if (pill) {
+    // Locked identity: Displays the user's name, avatar, and a Logout button.
+    // NO DROPDOWN TO SWITCH OR SPOOF ANYONE ELSE!
+    pill.innerHTML = `
+      <div class="flex items-center gap-2 bg-white/95 border border-slate-200/90 rounded-2xl px-2.5 py-1.5 shadow-xs">
+        <span class="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-black shadow-xs" style="background-color: ${state.currentUser.avatar_color || '#10b981'}">
+          ${(state.currentUser.name || 'U')[0].toUpperCase()}
         </span>
         <div class="text-left leading-tight hidden sm:block">
-          <div class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Shopping as</div>
-          <div class="text-xs font-bold text-slate-800">${currentMember.name}</div>
+          <div class="text-[9px] uppercase font-bold text-slate-400">Signed In As</div>
+          <div class="text-xs font-bold text-slate-800">${escapeHtml(state.currentUser.name)}</div>
         </div>
-        <svg class="w-3.5 h-3.5 text-slate-400 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
+        <button onclick="logout()" class="ml-1 px-2 py-1 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 text-xs font-bold transition flex items-center gap-1" title="Log Out">
+          <span>🚪</span>
+          <span class="text-[10px] hidden sm:inline">Logout</span>
+        </button>
       </div>
     `;
   }
 
-  // Grocery count badge
   const groceryBadge = document.getElementById('tab-grocery-badge');
   if (groceryBadge) {
     groceryBadge.textContent = state.activeItems.length;
     groceryBadge.className = `ml-1.5 px-2 py-0.5 text-xs rounded-full font-bold ${state.activeItems.length > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`;
-  }
-
-  // Sound toggle button icon
-  const soundBtn = document.getElementById('sound-toggle-btn');
-  if (soundBtn) {
-    soundBtn.innerHTML = state.soundEnabled ? '🔊' : '🔇';
-    soundBtn.title = state.soundEnabled ? 'Audio chimes active (Click to mute)' : 'Muted (Click to enable)';
   }
 }
 
@@ -281,7 +500,6 @@ function renderGroceryList() {
 
   if (!container) return;
 
-  // Filter items
   let filtered = state.activeItems.filter(item => {
     const matchesCat = state.selectedCategory === 'All' || item.category === state.selectedCategory;
     const matchesSearch = !state.searchQuery || item.title.toLowerCase().includes(state.searchQuery.toLowerCase());
@@ -365,8 +583,6 @@ function renderCategoryPills() {
   if (!container) return;
 
   const categories = ['All', 'Produce', 'Dairy', 'Bakery', 'Pantry', 'Snacks', 'Drinks', 'Household', 'Frozen', 'Meat', 'Other'];
-  
-  // Count per category
   const counts = { All: state.activeItems.length };
   for (const item of state.activeItems) {
     counts[item.category] = (counts[item.category] || 0) + 1;
@@ -390,14 +606,13 @@ function renderCategoryPills() {
 }
 
 function renderBillsAndSplits() {
-  // Stat cards
   const totalSpentEl = document.getElementById('stat-total-spent');
   const myBalanceEl = document.getElementById('stat-my-balance');
   const myBalanceLabel = document.getElementById('stat-my-balance-label');
 
   if (totalSpentEl) totalSpentEl.textContent = `$${Number(state.stats.total_spent || 0).toFixed(2)}`;
 
-  const myBalObj = state.balances.find(b => b.id === state.currentMemberId);
+  const myBalObj = state.balances.find(b => b.id === (state.currentUser ? state.currentUser.id : null));
   const myBal = myBalObj ? myBalObj.balance : 0.0;
 
   if (myBalanceEl) {
@@ -429,8 +644,8 @@ function renderBillsAndSplits() {
       `;
     } else {
       transfersContainer.innerHTML = state.transfers.map(t => {
-        const isMeFrom = t.from_id === state.currentMemberId;
-        const isMeTo = t.to_id === state.currentMemberId;
+        const isMeFrom = state.currentUser && t.from_id === state.currentUser.id;
+        const isMeTo = state.currentUser && t.to_id === state.currentUser.id;
         return `
           <div class="p-4 rounded-2xl bg-white border ${isMeFrom ? 'border-rose-200 bg-rose-50/30' : isMeTo ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-100'} shadow-sm flex items-center justify-between gap-3">
             <div class="flex items-center gap-3">
@@ -444,11 +659,15 @@ function renderBillsAndSplits() {
                 <div class="text-lg font-black text-slate-900 mt-0.5">$${Number(t.amount).toFixed(2)}</div>
               </div>
             </div>
-            <button onclick="openSettleModal(${t.from_id}, '${escapeHtml(t.from_name)}', ${t.to_id}, '${escapeHtml(t.to_name)}', ${t.amount})" 
-                    class="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-emerald-600 text-white font-bold text-xs shadow-sm transition flex items-center gap-1.5">
-              <span>Settle Up</span>
-              <span>✓</span>
-            </button>
+            ${isMeFrom ? `
+              <button onclick="openSettleModal(${t.to_id}, '${escapeHtml(t.to_name)}', ${t.amount})" 
+                      class="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-emerald-600 text-white font-bold text-xs shadow-sm transition flex items-center gap-1.5">
+                <span>Pay Back</span>
+                <span>✓</span>
+              </button>
+            ` : `
+              <span class="text-[11px] font-semibold text-slate-400 bg-slate-50 px-2.5 py-1 rounded-xl">Pending</span>
+            `}
           </div>
         `;
       }).join('');
@@ -501,13 +720,14 @@ function renderBillsAndSplits() {
     balancesContainer.innerHTML = state.balances.map(m => {
       const isPositive = m.balance > 0.01;
       const isNegative = m.balance < -0.01;
+      const isMe = state.currentUser && m.id === state.currentUser.id;
       return `
         <div class="flex items-center justify-between py-2 border-b border-slate-50 last:border-0 text-xs">
           <div class="flex items-center gap-2">
             <span class="w-6 h-6 rounded-full text-[10px] flex items-center justify-center text-white font-bold" style="background-color: ${m.avatar_color}">
               ${m.name[0].toUpperCase()}
             </span>
-            <span class="font-bold text-slate-700">${escapeHtml(m.name)} ${m.id === state.currentMemberId ? '<span class="text-[10px] text-emerald-600 font-semibold">(You)</span>' : ''}</span>
+            <span class="font-bold text-slate-700">${escapeHtml(m.name)} ${isMe ? '<span class="text-[10px] text-emerald-600 font-semibold">(You)</span>' : ''}</span>
           </div>
           <div class="font-extrabold ${isPositive ? 'text-emerald-600' : isNegative ? 'text-rose-600' : 'text-slate-400'}">
             ${isPositive ? '+' : ''}$${m.balance.toFixed(2)}
@@ -540,7 +760,10 @@ function renderActivityFeed() {
   `).join('');
 }
 
-// User Actions
+// =========================================================
+// 6. USER ACTIONS (Protected with Token & Locked Identity)
+// =========================================================
+
 async function addItem(e) {
   e.preventDefault();
   const titleInput = document.getElementById('item-title-input');
@@ -558,14 +781,8 @@ async function addItem(e) {
   try {
     const res = await fetch('/api/items', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title,
-        quantity,
-        category,
-        is_urgent,
-        added_by: state.currentMemberId
-      })
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ title, quantity, category, is_urgent })
     });
 
     if (res.ok) {
@@ -574,6 +791,8 @@ async function addItem(e) {
       titleInput.focus();
       playSound('add');
       loadState();
+    } else if (res.status === 401) {
+      showAuthScreen();
     }
   } catch (err) {
     console.error("Failed to add item:", err);
@@ -584,11 +803,8 @@ async function toggleItemBought(itemId) {
   try {
     const res = await fetch('/api/items/toggle', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        item_id: itemId,
-        member_id: state.currentMemberId
-      })
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ item_id: itemId })
     });
     if (res.ok) {
       const data = await res.json();
@@ -606,11 +822,8 @@ async function deleteItem(itemId) {
   try {
     const res = await fetch('/api/items/delete', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        item_id: itemId,
-        member_id: state.currentMemberId
-      })
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ item_id: itemId })
     });
     if (res.ok) {
       loadState();
@@ -625,8 +838,8 @@ async function clearBoughtItems() {
   try {
     const res = await fetch('/api/items/clear-bought', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ member_id: state.currentMemberId })
+      headers: getAuthHeaders(),
+      body: JSON.stringify({})
     });
     if (res.ok) {
       playSound('clear');
@@ -644,7 +857,6 @@ async function submitBill(e) {
   const payerInput = document.getElementById('bill-payer-select');
   const dateInput = document.getElementById('bill-date-input');
 
-  // Gather selected split members
   const splitCheckboxes = document.querySelectorAll('.split-member-checkbox:checked');
   const splitWith = Array.from(splitCheckboxes).map(cb => parseInt(cb.value));
 
@@ -665,7 +877,7 @@ async function submitBill(e) {
   try {
     const res = await fetch('/api/bills', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify({
         store_name: store,
         total_amount: amount,
@@ -690,7 +902,6 @@ async function submitBill(e) {
 
 async function submitSettlement(e) {
   e.preventDefault();
-  const fromId = parseInt(document.getElementById('settle-from-id').value);
   const toId = parseInt(document.getElementById('settle-to-id').value);
   const amount = parseFloat(document.getElementById('settle-amount-input').value);
 
@@ -699,52 +910,17 @@ async function submitSettlement(e) {
   try {
     const res = await fetch('/api/settlements', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from_id: fromId,
-        to_id: toId,
-        amount: amount
-      })
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ to_id: toId, amount: amount })
     });
     if (res.ok) {
       playSound('settle');
       closeModal('settle-modal');
-      showToast("Settlement recorded! Balances updated.", "success");
+      showToast("Payment recorded! Balances updated.", "success");
       loadState();
     }
   } catch (err) {
     console.error("Failed to settle debt:", err);
-  }
-}
-
-async function addNewMember(e) {
-  e.preventDefault();
-  const nameInput = document.getElementById('new-member-name-input');
-  const name = nameInput.value.trim();
-  if (!name) return;
-
-  const colors = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
-  const avatarColor = colors[Math.floor(Math.random() * colors.length)];
-
-  try {
-    const res = await fetch('/api/members', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, avatar_color: avatarColor })
-    });
-    const data = await res.json();
-    if (res.ok) {
-      nameInput.value = '';
-      state.currentMemberId = data.id;
-      localStorage.setItem('cartshare_member_id', data.id);
-      closeModal('member-modal');
-      showToast(`Welcome, ${name}! You are now shopping as ${name}.`, 'success');
-      loadState();
-    } else {
-      showToast(data.error || "Failed to add friend", "warning");
-    }
-  } catch (err) {
-    console.error("Error adding member:", err);
   }
 }
 
@@ -804,8 +980,8 @@ function openAddBillModal() {
 
   if (payerSelect) {
     payerSelect.innerHTML = state.members.map(m => `
-      <option value="${m.id}" ${m.id === state.currentMemberId ? 'selected' : ''}>
-        ${escapeHtml(m.name)} ${m.id === state.currentMemberId ? '(You)' : ''}
+      <option value="${m.id}" ${state.currentUser && m.id === state.currentUser.id ? 'selected' : ''}>
+        ${escapeHtml(m.name)} ${state.currentUser && m.id === state.currentUser.id ? '(You)' : ''}
       </option>
     `).join('');
   }
@@ -815,7 +991,7 @@ function openAddBillModal() {
       <label class="flex items-center justify-between p-2 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
         <span class="flex items-center gap-2 text-xs font-semibold text-slate-700">
           <span class="w-4 h-4 rounded-full" style="background-color: ${m.avatar_color}"></span>
-          ${escapeHtml(m.name)}
+          ${escapeHtml(m.name)} ${state.currentUser && m.id === state.currentUser.id ? '(You)' : ''}
         </span>
         <input type="checkbox" class="split-member-checkbox custom-checkbox" value="${m.id}" checked />
       </label>
@@ -825,55 +1001,19 @@ function openAddBillModal() {
   openModal('add-bill-modal');
 }
 
-function openSettleModal(fromId, fromName, toId, toName, amount) {
+function openSettleModal(toId, toName, amount) {
   const infoEl = document.getElementById('settle-modal-info');
   const amountInput = document.getElementById('settle-amount-input');
-  document.getElementById('settle-from-id').value = fromId;
   document.getElementById('settle-to-id').value = toId;
 
   if (infoEl) {
-    infoEl.innerHTML = `Recording settlement payment from <strong class="text-slate-800">${escapeHtml(fromName)}</strong> to <strong class="text-slate-800">${escapeHtml(toName)}</strong>`;
+    infoEl.innerHTML = `Recording payment from <strong class="text-slate-800">${escapeHtml(state.currentUser.name)} (You)</strong> to <strong class="text-slate-800">${escapeHtml(toName)}</strong>`;
   }
   if (amountInput) {
     amountInput.value = amount.toFixed(2);
   }
 
   openModal('settle-modal');
-}
-
-function openMemberModal() {
-  const listEl = document.getElementById('members-list-selection');
-  if (listEl) {
-    listEl.innerHTML = state.members.map(m => `
-      <div class="flex items-center justify-between p-3 rounded-2xl border ${m.id === state.currentMemberId ? 'border-emerald-500 bg-emerald-50/40' : 'border-slate-100 hover:bg-slate-50'} cursor-pointer transition"
-           onclick="selectCurrentMember(${m.id})">
-        <div class="flex items-center gap-3">
-          <span class="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs shadow-sm" style="background-color: ${m.avatar_color}">
-            ${m.name[0].toUpperCase()}
-          </span>
-          <span class="text-sm font-bold text-slate-800">${escapeHtml(m.name)}</span>
-        </div>
-        ${m.id === state.currentMemberId ? '<span class="text-emerald-600 text-xs font-extrabold">Active ✓</span>' : '<span class="text-xs text-slate-400">Select</span>'}
-      </div>
-    `).join('');
-  }
-  openModal('member-modal');
-}
-
-function selectCurrentMember(memberId) {
-  state.currentMemberId = memberId;
-  localStorage.setItem('cartshare_member_id', memberId);
-  closeModal('member-modal');
-  renderHeader();
-  renderBillsAndSplits();
-  const m = state.members.find(x => x.id === memberId);
-  showToast(`Switched active profile to ${m ? m.name : 'User'}`, 'info');
-}
-
-function toggleAudio() {
-  state.soundEnabled = !state.soundEnabled;
-  renderHeader();
-  showToast(state.soundEnabled ? "Audio chimes enabled" : "Audio muted", "info");
 }
 
 // Helpers
@@ -904,8 +1044,10 @@ let deferredPrompt = null;
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(err => {
-      console.log('ServiceWorker note:', err);
+    navigator.serviceWorker.register('/sw.js').then((reg) => {
+      console.log('CartShare ServiceWorker registered:', reg.scope);
+    }).catch(err => {
+      console.log('ServiceWorker registration note:', err);
     });
   });
 }
@@ -938,9 +1080,13 @@ function triggerPwaInstall() {
 
 // Initialization on DOM Load
 window.addEventListener('DOMContentLoaded', () => {
-  loadState();
+  if (state.authToken) {
+    loadState(true);
+  } else {
+    showAuthScreen();
+  }
+
   connectSSE();
-  initBrowserNotifications();
 
   // Close modals on clicking background backdrop
   window.addEventListener('click', (e) => {

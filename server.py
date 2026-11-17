@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """
 CartShare - Collaborative Grocery Shopping & Bill-Splitting Server
-A zero-dependency Python 3 server with SQLite persistence, REST API,
-and real-time Server-Sent Events (SSE) synchronization.
+Features:
+- User Registration & Authentication (hashed passwords + session tokens)
+- Identity locking (users can only act as themselves)
+- SQLite database persistence with foreign keys
+- Server-Sent Events (SSE) for instant push updates
+- REST API for items, bills, debts, and settlements
 """
 
 import os
@@ -13,8 +17,10 @@ import socket
 import threading
 import queue
 import mimetypes
+import hashlib
+import secrets
 from datetime import datetime
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 # Base paths
@@ -40,6 +46,13 @@ def broadcast_event(event_type: str, data: dict):
             if q in sse_subscribers:
                 sse_subscribers.remove(q)
 
+def hash_password(password: str, salt: str = None) -> tuple[str, str]:
+    """Hash password using standard library SHA-256 with cryptographic salt."""
+    if not salt:
+        salt = secrets.token_hex(16)
+    hashed = hashlib.sha256((password + salt).encode('utf-8')).hexdigest()
+    return hashed, salt
+
 def get_db():
     """Get a thread-local SQLite connection with dictionary-like row access."""
     conn = sqlite3.connect(DB_PATH)
@@ -48,17 +61,41 @@ def get_db():
     return conn
 
 def init_db():
-    """Initialize database tables and seed starter members if empty."""
+    """Initialize database tables, ensure auth schema, and create sessions table."""
     conn = get_db()
     with conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS members (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                username TEXT UNIQUE,
+                password_hash TEXT,
+                salt TEXT,
                 avatar_color TEXT NOT NULL DEFAULT '#10b981',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # Migration: Add username/password/salt columns if missing from earlier runs
+        cur = conn.cursor()
+        cur.execute("PRAGMA table_info(members)")
+        cols = [r["name"] for r in cur.fetchall()]
+        if "username" not in cols:
+            conn.execute("ALTER TABLE members ADD COLUMN username TEXT")
+        if "password_hash" not in cols:
+            conn.execute("ALTER TABLE members ADD COLUMN password_hash TEXT")
+        if "salt" not in cols:
+            conn.execute("ALTER TABLE members ADD COLUMN salt TEXT")
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                member_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+            )
+        """)
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,6 +112,7 @@ def init_db():
                 FOREIGN KEY (bought_by) REFERENCES members(id)
             )
         """)
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS bills (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,6 +125,7 @@ def init_db():
                 FOREIGN KEY (paid_by) REFERENCES members(id)
             )
         """)
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS bill_splits (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,6 +136,7 @@ def init_db():
                 FOREIGN KEY (member_id) REFERENCES members(id)
             )
         """)
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS settlements (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,6 +149,7 @@ def init_db():
                 FOREIGN KEY (to_member_id) REFERENCES members(id)
             )
         """)
+
         conn.execute("""
             CREATE TABLE IF NOT EXISTS activities (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,36 +161,21 @@ def init_db():
             )
         """)
 
-        # Seed sample members if fresh
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) AS cnt FROM members")
+        # If fresh database, seed sample items
+        cur.execute("SELECT COUNT(*) AS cnt FROM items")
         if cur.fetchone()["cnt"] == 0:
-            sample_members = [
-                ("Alex", "#3b82f6"),
-                ("Sam", "#10b981"),
-                ("Taylor", "#f59e0b"),
-                ("Jordan", "#8b5cf6")
-            ]
-            for name, color in sample_members:
-                conn.execute("INSERT INTO members (name, avatar_color) VALUES (?, ?)", (name, color))
-
             sample_items = [
-                ("Organic Whole Milk", "2 cartons", "Dairy", 1, 1),
-                ("Avocados", "4 pcs", "Produce", 0, 2),
-                ("Sourdough Bread", "1 loaf", "Bakery", 1, 3),
-                ("Eggs (Large Brown)", "1 dozen", "Dairy", 0, 1),
-                ("Cold Brew Coffee", "2 bottles", "Drinks", 0, 4)
+                ("Organic Whole Milk", "2 cartons", "Dairy", 1, None),
+                ("Avocados", "4 pcs", "Produce", 0, None),
+                ("Sourdough Bread", "1 loaf", "Bakery", 1, None),
+                ("Eggs (Large Brown)", "1 dozen", "Dairy", 0, None),
+                ("Cold Brew Coffee", "2 bottles", "Drinks", 0, None)
             ]
             for title, qty, cat, urgent, added_by in sample_items:
                 conn.execute(
                     "INSERT INTO items (title, quantity, category, is_urgent, added_by) VALUES (?, ?, ?, ?, ?)",
                     (title, qty, cat, urgent, added_by)
                 )
-
-            conn.execute(
-                "INSERT INTO activities (message, action_type, member_id) VALUES (?, ?, ?)",
-                ("CartShare group created with starter grocery list", "system", 1)
-            )
     conn.close()
 
 def log_activity(conn, message: str, action_type: str, member_id=None):
@@ -159,15 +185,39 @@ def log_activity(conn, message: str, action_type: str, member_id=None):
         (message, action_type, member_id)
     )
 
+def get_authenticated_member(headers):
+    """Identify the logged-in member from the Authorization header or session cookie."""
+    auth_header = headers.get("Authorization", "")
+    token = None
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+    if not token:
+        cookie_header = headers.get("Cookie", "")
+        for part in cookie_header.split(";"):
+            part = part.strip()
+            if part.startswith("session_token="):
+                token = part.split("=")[1].strip()
+                break
+    if not token:
+        return None
+
+    conn = get_db()
+    try:
+        row = conn.execute("""
+            SELECT m.id, m.name, m.username, m.avatar_color
+            FROM sessions s
+            JOIN members m ON s.member_id = m.id
+            WHERE s.token = ?
+        """, (token,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
 def calculate_debt_transfers(members, net_balances):
-    """
-    Minimizes debt transfers between members using greedy reconciliation.
-    net_balances: {member_id: float (positive = owed money, negative = owes money)}
-    Returns list of dicts: [{from_id, from_name, to_id, to_name, amount}]
-    """
+    """Minimizes debt transfers between members using greedy reconciliation."""
     name_map = {m["id"]: m["name"] for m in members}
-    debtors = []   # owes money (negative balance)
-    creditors = [] # owed money (positive balance)
+    debtors = []
+    creditors = []
 
     for mid, bal in net_balances.items():
         rounded = round(bal, 2)
@@ -203,11 +253,15 @@ def calculate_debt_transfers(members, net_balances):
 
     return transfers
 
-def get_full_state():
+def get_full_state(current_user=None):
     """Retrieve full application state for client consumption."""
     conn = get_db()
     try:
-        members = [dict(r) for r in conn.execute("SELECT * FROM members ORDER BY name ASC").fetchall()]
+        # Public member roster (name, avatar, id - no password/salt)
+        members = [
+            {"id": r["id"], "name": r["name"], "avatar_color": r["avatar_color"]}
+            for r in conn.execute("SELECT id, name, avatar_color FROM members ORDER BY name ASC").fetchall()
+        ]
         
         items_query = """
             SELECT i.*, 
@@ -255,17 +309,12 @@ def get_full_state():
         """).fetchall()]
 
         # Net balance calculation
-        # balance[m] = (total paid in bills + payments made in settlements)
-        #            - (total share owed in bills + settlements received)
         net_balances = {m["id"]: 0.0 for m in members}
-        
-        # Credit whoever paid the bill
         for b in bills:
             net_balances[b["paid_by"]] = net_balances.get(b["paid_by"], 0.0) + b["total_amount"]
             for s in b["splits"]:
                 net_balances[s["member_id"]] = net_balances.get(s["member_id"], 0.0) - s["share_amount"]
 
-        # Factor in settlements
         for s in settlements:
             net_balances[s["from_member_id"]] = net_balances.get(s["from_member_id"], 0.0) + s["amount"]
             net_balances[s["to_member_id"]] = net_balances.get(s["to_member_id"], 0.0) - s["amount"]
@@ -293,6 +342,7 @@ def get_full_state():
         total_spent = sum(b["total_amount"] for b in bills)
 
         return {
+            "currentUser": current_user,
             "members": members,
             "active_items": active_items,
             "bought_items": bought_items,
@@ -313,10 +363,9 @@ def get_full_state():
 
 class CartShareRequestHandler(BaseHTTPRequestHandler):
     def end_headers(self):
-        # Enable CORS for local testing/multi-device
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         super().end_headers()
 
     def do_OPTIONS(self):
@@ -349,12 +398,21 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
         path = parsed.path
 
         if path == "/api/state":
-            state = get_full_state()
+            current_user = get_authenticated_member(self.headers)
+            state = get_full_state(current_user)
             self.send_json(state)
             return
 
+        if path == "/api/auth/me":
+            user = get_authenticated_member(self.headers)
+            if user:
+                self.send_json({"authenticated": True, "user": user})
+            else:
+                self.send_json({"authenticated": False})
+            return
+
         if path == "/api/events":
-            # Server-Sent Events stream for real-time updates
+            # Server-Sent Events stream for real-time mobile push
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
@@ -367,7 +425,6 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
                 sse_subscribers.append(q)
 
             try:
-                # Send initial ping
                 self.wfile.write(b": connected\n\n")
                 self.wfile.flush()
                 while True:
@@ -376,7 +433,6 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
                         self.wfile.write(msg.encode("utf-8"))
                         self.wfile.flush()
                     except queue.Empty:
-                        # Keep-alive heartbeat
                         self.wfile.write(b": heartbeat\n\n")
                         self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
@@ -394,7 +450,6 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
             rel_path = path.lstrip("/")
             file_path = os.path.join(STATIC_DIR, rel_path)
 
-        # Prevent directory traversal
         norm_path = os.path.abspath(file_path)
         if not norm_path.startswith(STATIC_DIR) or not os.path.isfile(norm_path):
             self.send_response(404)
@@ -418,35 +473,116 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         body = self.read_json_body()
-
         conn = get_db()
+
         try:
-            # 1. Add New Member
-            if path == "/api/members":
+            # -----------------------------------------------------
+            # AUTH: Register New Friend
+            # -----------------------------------------------------
+            if path == "/api/auth/register":
+                username = body.get("username", "").strip().lower()
+                password = body.get("password", "").strip()
                 name = body.get("name", "").strip()
-                color = body.get("avatar_color", "#10b981")
-                if not name:
-                    self.send_error_json("Member name is required")
+
+                if not username or len(username) < 3:
+                    self.send_error_json("Username must be at least 3 characters")
                     return
+                if not password or len(password) < 4:
+                    self.send_error_json("Password must be at least 4 characters")
+                    return
+                if not name:
+                    name = username.capitalize()
+
+                colors = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316']
+                avatar_color = colors[len(username) % len(colors)]
+
+                hashed, salt = hash_password(password)
+
                 try:
                     with conn:
                         cur = conn.cursor()
-                        cur.execute("INSERT INTO members (name, avatar_color) VALUES (?, ?)", (name, color))
+                        cur.execute(
+                            "INSERT INTO members (name, username, password_hash, salt, avatar_color) VALUES (?, ?, ?, ?, ?)",
+                            (name, username, hashed, salt, avatar_color)
+                        )
                         member_id = cur.lastrowid
-                        log_activity(conn, f"Joined the group: {name}", "member_joined", member_id)
-                    broadcast_event("state_updated", {"action": "member_added", "member": name})
-                    self.send_json({"success": True, "id": member_id, "name": name})
+                        token = secrets.token_hex(32)
+                        cur.execute("INSERT INTO sessions (token, member_id) VALUES (?, ?)", (token, member_id))
+                        log_activity(conn, f"{name} registered and joined CartShare", "member_joined", member_id)
+
+                    user_obj = {"id": member_id, "name": name, "username": username, "avatar_color": avatar_color}
+                    broadcast_event("state_updated", {
+                        "action": "member_joined",
+                        "name": name,
+                        "actor_id": member_id
+                    })
+                    self.send_json({"success": True, "token": token, "user": user_obj})
                 except sqlite3.IntegrityError:
-                    self.send_error_json(f"A member named '{name}' already exists.")
+                    self.send_error_json("A user with that username or name already exists.")
                 return
 
-            # 2. Add Grocery Item
+            # -----------------------------------------------------
+            # AUTH: Login Existing Friend
+            # -----------------------------------------------------
+            if path == "/api/auth/login":
+                username = body.get("username", "").strip().lower()
+                password = body.get("password", "").strip()
+
+                if not username or not password:
+                    self.send_error_json("Username and password are required")
+                    return
+
+                cur = conn.cursor()
+                row = cur.execute("SELECT * FROM members WHERE LOWER(username) = ? OR LOWER(name) = ?", (username, username)).fetchone()
+                if not row or not row["password_hash"] or not row["salt"]:
+                    self.send_error_json("Invalid username or password", status=401)
+                    return
+
+                check_hash, _ = hash_password(password, row["salt"])
+                if check_hash != row["password_hash"]:
+                    self.send_error_json("Invalid username or password", status=401)
+                    return
+
+                token = secrets.token_hex(32)
+                with conn:
+                    conn.execute("INSERT INTO sessions (token, member_id) VALUES (?, ?)", (token, row["id"]))
+
+                user_obj = {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "username": row["username"],
+                    "avatar_color": row["avatar_color"]
+                }
+                self.send_json({"success": True, "token": token, "user": user_obj})
+                return
+
+            # -----------------------------------------------------
+            # AUTH: Logout
+            # -----------------------------------------------------
+            if path == "/api/auth/logout":
+                auth_header = self.headers.get("Authorization", "")
+                if auth_header.startswith("Bearer "):
+                    token = auth_header[7:].strip()
+                    with conn:
+                        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+                self.send_json({"success": True})
+                return
+
+            # =====================================================
+            # PROTECTED ROUTES (Require Authentication)
+            # =====================================================
+            current_user = get_authenticated_member(self.headers)
+            if not current_user:
+                self.send_error_json("Authentication required. Please log in.", status=401)
+                return
+
+            # 1. Add Grocery Item (Identity locked to current_user)
             if path == "/api/items":
                 title = body.get("title", "").strip()
                 quantity = body.get("quantity", "1").strip() or "1"
                 category = body.get("category", "Pantry").strip() or "Pantry"
                 is_urgent = 1 if body.get("is_urgent") else 0
-                added_by = body.get("added_by")
+                added_by = current_user["id"]  # Strictly derived from session!
 
                 if not title:
                     self.send_error_json("Item name is required")
@@ -459,28 +595,21 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
                         (title, quantity, category, is_urgent, added_by)
                     )
                     item_id = cur.lastrowid
-
-                    adder_name = "Someone"
-                    if added_by:
-                        m = conn.execute("SELECT name FROM members WHERE id = ?", (added_by,)).fetchone()
-                        if m:
-                            adder_name = m["name"]
-
-                    log_activity(conn, f"{adder_name} added: {title} ({quantity})", "item_added", added_by)
+                    log_activity(conn, f"{current_user['name']} added: {title} ({quantity})", "item_added", added_by)
 
                 broadcast_event("state_updated", {
                     "action": "item_added",
                     "title": title,
-                    "added_by": adder_name
+                    "quantity": quantity,
+                    "actor": current_user["name"],
+                    "actor_id": current_user["id"]
                 })
                 self.send_json({"success": True, "id": item_id})
                 return
 
-            # 3. Toggle Item Bought Status
+            # 2. Toggle Item Bought Status (Identity locked to current_user)
             if path == "/api/items/toggle":
                 item_id = body.get("item_id")
-                member_id = body.get("member_id")
-
                 if not item_id:
                     self.send_error_json("item_id is required")
                     return
@@ -493,7 +622,7 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
                         return
 
                     new_status = 0 if item["is_bought"] else 1
-                    bought_by = member_id if new_status == 1 else None
+                    bought_by = current_user["id"] if new_status == 1 else None
                     bought_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") if new_status == 1 else None
 
                     cur.execute(
@@ -501,48 +630,43 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
                         (new_status, bought_by, bought_at, item_id)
                     )
 
-                    actor_name = "Someone"
-                    if member_id:
-                        m = cur.execute("SELECT name FROM members WHERE id = ?", (member_id,)).fetchone()
-                        if m:
-                            actor_name = m["name"]
-
-                    msg = f"{actor_name} bought: {item['title']}" if new_status else f"{actor_name} moved back to cart: {item['title']}"
-                    log_activity(conn, msg, "item_toggled", member_id)
+                    msg = (
+                        f"{current_user['name']} bought: {item['title']}"
+                        if new_status
+                        else f"{current_user['name']} moved back to cart: {item['title']}"
+                    )
+                    log_activity(conn, msg, "item_toggled", current_user["id"])
 
                 broadcast_event("state_updated", {
                     "action": "item_toggled",
                     "title": item["title"],
                     "is_bought": bool(new_status),
-                    "actor": actor_name
+                    "actor": current_user["name"],
+                    "actor_id": current_user["id"]
                 })
                 self.send_json({"success": True, "is_bought": bool(new_status)})
                 return
 
-            # 4. Clear All Bought Items
+            # 3. Clear All Bought Items
             if path == "/api/items/clear-bought":
-                member_id = body.get("member_id")
                 with conn:
                     cur = conn.cursor()
                     count = cur.execute("SELECT COUNT(*) AS cnt FROM items WHERE is_bought = 1").fetchone()["cnt"]
                     cur.execute("DELETE FROM items WHERE is_bought = 1")
-                    
-                    actor_name = "Someone"
-                    if member_id:
-                        m = cur.execute("SELECT name FROM members WHERE id = ?", (member_id,)).fetchone()
-                        if m:
-                            actor_name = m["name"]
-                    
-                    log_activity(conn, f"{actor_name} cleared {count} purchased item(s)", "cleared_bought", member_id)
+                    log_activity(conn, f"{current_user['name']} cleared {count} purchased item(s)", "cleared_bought", current_user["id"])
 
-                broadcast_event("state_updated", {"action": "cleared_bought", "count": count, "actor": actor_name})
+                broadcast_event("state_updated", {
+                    "action": "cleared_bought",
+                    "count": count,
+                    "actor": current_user["name"],
+                    "actor_id": current_user["id"]
+                })
                 self.send_json({"success": True, "cleared_count": count})
                 return
 
-            # 5. Delete Item
+            # 4. Delete Single Item
             if path == "/api/items/delete":
                 item_id = body.get("item_id")
-                member_id = body.get("member_id")
                 if not item_id:
                     self.send_error_json("item_id is required")
                     return
@@ -550,39 +674,35 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
                     cur = conn.cursor()
                     item = cur.execute("SELECT title FROM items WHERE id = ?", (item_id,)).fetchone()
                     cur.execute("DELETE FROM items WHERE id = ?", (item_id,))
-                    actor_name = "Someone"
-                    if member_id:
-                        m = cur.execute("SELECT name FROM members WHERE id = ?", (member_id,)).fetchone()
-                        if m:
-                            actor_name = m["name"]
                     title = item["title"] if item else "item"
-                    log_activity(conn, f"{actor_name} removed: {title}", "item_deleted", member_id)
+                    log_activity(conn, f"{current_user['name']} removed: {title}", "item_deleted", current_user["id"])
 
-                broadcast_event("state_updated", {"action": "item_deleted", "title": title})
+                broadcast_event("state_updated", {
+                    "action": "item_deleted",
+                    "title": title,
+                    "actor": current_user["name"],
+                    "actor_id": current_user["id"]
+                })
                 self.send_json({"success": True})
                 return
 
-            # 6. Add Supermarket Bill and Split
+            # 5. Add Supermarket Bill and Split
             if path == "/api/bills":
                 store_name = body.get("store_name", "").strip() or "Supermarket"
                 total_amount = float(body.get("total_amount", 0.0))
-                paid_by = body.get("paid_by")
-                split_with = body.get("split_with", []) # list of member_ids
+                paid_by = int(body.get("paid_by") or current_user["id"])
+                split_with = body.get("split_with", [])
                 bill_date = body.get("bill_date", "").strip() or datetime.utcnow().strftime("%Y-%m-%d")
                 notes = body.get("notes", "").strip()
 
                 if total_amount <= 0:
                     self.send_error_json("Total amount must be greater than 0")
                     return
-                if not paid_by:
-                    self.send_error_json("Payer must be specified")
-                    return
                 if not split_with:
                     self.send_error_json("Must select at least one person to split with")
                     return
 
                 share = round(total_amount / len(split_with), 2)
-                # Adjust rounding discrepancy on first person
                 rounding_diff = round(total_amount - (share * len(split_with)), 2)
 
                 with conn:
@@ -601,33 +721,35 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
                         )
 
                     payer = cur.execute("SELECT name FROM members WHERE id = ?", (paid_by,)).fetchone()
-                    payer_name = payer["name"] if payer else "Someone"
+                    payer_name = payer["name"] if payer else current_user["name"]
 
                     log_activity(
                         conn, 
-                        f"{payer_name} added a ${total_amount:.2f} bill for {store_name} (split among {len(split_with)} friends)",
+                        f"{current_user['name']} recorded a ${total_amount:.2f} bill for {store_name} (Paid by {payer_name})",
                         "bill_added", 
-                        paid_by
+                        current_user["id"]
                     )
 
                 broadcast_event("state_updated", {
                     "action": "bill_added",
                     "store": store_name,
                     "amount": total_amount,
-                    "payer": payer_name
+                    "payer": payer_name,
+                    "actor": current_user["name"],
+                    "actor_id": current_user["id"]
                 })
                 self.send_json({"success": True, "bill_id": bill_id})
                 return
 
-            # 7. Settle Debt Between Friends
+            # 6. Settle Debt Between Friends (from_id locked to current_user)
             if path == "/api/settlements":
-                from_id = body.get("from_id")
-                to_id = body.get("to_id")
+                from_id = current_user["id"]  # You can only log debts you pay
+                to_id = int(body.get("to_id", 0))
                 amount = float(body.get("amount", 0.0))
                 note = body.get("note", "").strip() or "Debt settlement"
 
-                if not from_id or not to_id or from_id == to_id:
-                    self.send_error_json("Valid payer and recipient are required")
+                if not to_id or from_id == to_id:
+                    self.send_error_json("Valid recipient is required")
                     return
                 if amount <= 0:
                     self.send_error_json("Amount must be greater than 0")
@@ -639,24 +761,23 @@ class CartShareRequestHandler(BaseHTTPRequestHandler):
                         "INSERT INTO settlements (from_member_id, to_member_id, amount, note) VALUES (?, ?, ?, ?)",
                         (from_id, to_id, amount, note)
                     )
-                    
-                    from_m = cur.execute("SELECT name FROM members WHERE id = ?", (from_id,)).fetchone()
                     to_m = cur.execute("SELECT name FROM members WHERE id = ?", (to_id,)).fetchone()
-                    from_name = from_m["name"] if from_m else "User"
-                    to_name = to_m["name"] if to_m else "User"
+                    to_name = to_m["name"] if to_m else "Friend"
 
                     log_activity(
                         conn,
-                        f"{from_name} paid ${amount:.2f} to {to_name} (Settled)",
+                        f"{current_user['name']} paid ${amount:.2f} to {to_name} (Settled)",
                         "settlement_recorded",
                         from_id
                     )
 
                 broadcast_event("state_updated", {
                     "action": "settlement",
-                    "from": from_name,
+                    "from": current_user["name"],
                     "to": to_name,
-                    "amount": amount
+                    "amount": amount,
+                    "actor": current_user["name"],
+                    "actor_id": current_user["id"]
                 })
                 self.send_json({"success": True})
                 return
@@ -670,7 +791,6 @@ def get_local_ip():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.settimeout(0.5)
-        # Dummy connect to public DNS to find outbound interface
         s.connect(("8.8.8.8", 80))
         ip = s.getsockname()[0]
         s.close()
@@ -690,7 +810,7 @@ def run_server(port=8000):
     print(f" ▸ Local Access:       http://localhost:{port}")
     print(f" ▸ Phone / Wi-Fi URL:  http://{local_ip}:{port}")
     print("=" * 65)
-    print(" Real-time sync & notifications active! Press Ctrl+C to stop.")
+    print(" Auth security & mobile push notifications enabled!")
     print("=" * 65)
     sys.stdout.flush()
 
