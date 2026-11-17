@@ -1,21 +1,21 @@
 /**
- * Palachrakk Client Application
+ * PALACHARAK Client Application
+ * Clean 3-Tab Interface (Grocery, Split, Friends)
  * Features:
  * - Real User Authentication & Registration (Session Tokens)
- * - Identity Locking (Strict single-user sessions)
- * - Admin Member Directory & Live Online Presence Tracker (last_login, last_active)
+ * - Working Admin Member Removal
+ * - Online Presence & Last Login Tracking
  * - Exact Date & Time for Item Additions and Checkouts
  * - Euro (€) Currency across all splits and bills
  * - Mobile System Status Bar Notifications (Service Worker showNotification)
  * - Real-Time Server-Sent Events (SSE) Synchronization
  * - Web Audio API Synthesis
- * - Debt Simplification & Expense Ledger
  */
 
 // Application State
 const state = {
   currentUser: null,
-  authToken: localStorage.getItem('palachrakk_token') || localStorage.getItem('cartshare_token') || null,
+  authToken: localStorage.getItem('palacharak_token') || localStorage.getItem('palachrakk_token') || localStorage.getItem('cartshare_token') || null,
   members: [],
   activeItems: [],
   boughtItems: [],
@@ -82,8 +82,8 @@ async function handleLogin(e) {
     if (res.ok && data.token) {
       state.authToken = data.token;
       state.currentUser = data.user;
-      localStorage.setItem('palachrakk_token', data.token);
-      showToast(`Welcome back to Palachrakk, ${data.user.name}!`, 'success');
+      localStorage.setItem('palacharak_token', data.token);
+      showToast(`Welcome back, ${data.user.name}!`, 'success');
       showAppScreen();
       loadState();
     } else {
@@ -115,8 +115,8 @@ async function handleRegister(e) {
     if (res.ok && data.token) {
       state.authToken = data.token;
       state.currentUser = data.user;
-      localStorage.setItem('palachrakk_token', data.token);
-      showToast(`Welcome to Palachrakk, ${data.user.name}!`, 'success');
+      localStorage.setItem('palacharak_token', data.token);
+      showToast(`Welcome to PALACHARAK, ${data.user.name}!`, 'success');
       showAppScreen();
       loadState();
     } else {
@@ -140,6 +140,7 @@ async function logout() {
 
   state.authToken = null;
   state.currentUser = null;
+  localStorage.removeItem('palacharak_token');
   localStorage.removeItem('palachrakk_token');
   localStorage.removeItem('cartshare_token');
   showAuthScreen();
@@ -161,26 +162,21 @@ function showAppScreen() {
 }
 
 // =========================================================
-// 2. MOBILE SYSTEM STATUS BAR NOTIFICATIONS (Service Worker)
+// 2. MOBILE STATUS BAR NOTIFICATIONS (Service Worker)
 // =========================================================
 
 function checkPhoneNotificationStatus() {
   const banner = document.getElementById('notif-permission-banner');
-  const btn = document.getElementById('notif-toggle-btn');
-
   if ("Notification" in window) {
     if (Notification.permission === "granted") {
       state.notificationsEnabled = true;
       if (banner) banner.classList.add('hidden');
-      if (btn) btn.className = 'p-2 rounded-xl transition bg-emerald-100 text-emerald-700 font-medium';
     } else if (Notification.permission === "default") {
       state.notificationsEnabled = false;
       if (banner) banner.classList.remove('hidden');
-      if (btn) btn.className = 'p-2 rounded-xl transition text-slate-400 hover:text-slate-600';
     } else {
       state.notificationsEnabled = false;
       if (banner) banner.classList.add('hidden');
-      if (btn) btn.className = 'p-2 rounded-xl transition text-rose-400';
     }
   }
 }
@@ -195,13 +191,11 @@ async function requestPhoneNotificationPermission() {
   checkPhoneNotificationStatus();
 
   if (permission === "granted") {
-    showToast("Palachrakk alerts enabled!", "success");
+    showToast("PALACHARAK alerts enabled!", "success");
     await sendPhoneNotification(
-      "Palachrakk Notifications Active! 🛒",
-      "You will receive alerts in your phone status bar whenever friends add or buy items."
+      "PALACHARAK Alerts Active! 🛒",
+      "You will receive alerts in your status bar whenever friends add or buy items."
     );
-  } else if (permission === "denied") {
-    showToast("Notifications were blocked in your browser settings.", "warning");
   }
 }
 
@@ -225,9 +219,8 @@ async function sendPhoneNotification(title, body) {
     icon: '/icon-192.png',
     badge: '/icon-192.png',
     vibrate: [200, 100, 200],
-    tag: 'palachrakk-' + Date.now(),
-    renotify: true,
-    requireInteraction: false
+    tag: 'palacharak-' + Date.now(),
+    renotify: true
   };
 
   if ('serviceWorker' in navigator) {
@@ -237,19 +230,14 @@ async function sendPhoneNotification(title, body) {
         await reg.showNotification(title, options);
         return;
       }
-    } catch (err) {
-      console.warn("ServiceWorker notification failed, using desktop fallback:", err);
-    }
+    } catch (err) {}
   }
 
   try {
     new Notification(title, options);
-  } catch (e) {
-    console.warn("Desktop notification error:", e);
-  }
+  } catch (e) {}
 }
 
-// In-app Toast Alerts
 function showToast(message, type = 'info') {
   const container = document.getElementById('toast-container');
   if (!container) return;
@@ -262,27 +250,23 @@ function showToast(message, type = 'info') {
     purple: 'bg-purple-600 text-white border-purple-500'
   };
 
-  toast.className = `toast-enter flex items-center gap-3 px-4 py-3 rounded-2xl shadow-xl text-sm font-medium border ${colors[type] || colors.info} mb-2.5`;
-  toast.innerHTML = `
-    <span class="text-base">${type === 'success' ? '✓' : type === 'purple' ? '🧾' : '🔔'}</span>
-    <span class="flex-1">${message}</span>
-  `;
+  toast.className = `toast-enter flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl shadow-lg text-xs font-semibold border ${colors[type] || colors.info} mb-2`;
+  toast.innerHTML = `<span>${type === 'success' ? '✓' : type === 'purple' ? '🧾' : '🔔'}</span><span class="flex-1">${message}</span>`;
 
   container.appendChild(toast);
   setTimeout(() => {
     toast.style.opacity = '0';
-    toast.style.transform = 'translateY(-10px)';
     toast.style.transition = 'all 0.3s ease';
     setTimeout(() => toast.remove(), 300);
-  }, 4000);
+  }, 3500);
 }
 
-// Audio Synthesis (Web Audio API)
+// Audio Synthesis
 const audioCtx = (typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext)) 
   ? new (window.AudioContext || window.webkitAudioContext)() 
   : null;
 
-function playTone(freq, duration, type = 'sine', gainVal = 0.15) {
+function playTone(freq, duration, type = 'sine', gainVal = 0.12) {
   if (!state.soundEnabled || !audioCtx) return;
   try {
     if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -302,20 +286,20 @@ function playTone(freq, duration, type = 'sine', gainVal = 0.15) {
 function playSound(type) {
   if (!state.soundEnabled) return;
   if (type === 'buy') {
-    playTone(523.25, 0.1, 'sine', 0.15);
-    setTimeout(() => playTone(659.25, 0.18, 'sine', 0.15), 90);
+    playTone(523.25, 0.1);
+    setTimeout(() => playTone(659.25, 0.16), 80);
   } else if (type === 'add') {
-    playTone(587.33, 0.12, 'triangle', 0.12);
+    playTone(587.33, 0.12);
   } else if (type === 'bill') {
-    playTone(440.0, 0.08, 'sine', 0.12);
-    setTimeout(() => playTone(554.37, 0.08, 'sine', 0.12), 70);
-    setTimeout(() => playTone(659.25, 0.16, 'sine', 0.14), 140);
+    playTone(440.0, 0.08);
+    setTimeout(() => playTone(554.37, 0.08), 60);
+    setTimeout(() => playTone(659.25, 0.14), 120);
   } else if (type === 'settle') {
-    playTone(659.25, 0.1, 'sine', 0.15);
-    setTimeout(() => playTone(880.0, 0.22, 'sine', 0.15), 100);
+    playTone(659.25, 0.1);
+    setTimeout(() => playTone(880.0, 0.18), 90);
   } else if (type === 'clear') {
-    playTone(440.0, 0.08, 'triangle', 0.1);
-    setTimeout(() => playTone(349.23, 0.14, 'triangle', 0.1), 80);
+    playTone(440.0, 0.08);
+    setTimeout(() => playTone(349.23, 0.12), 70);
   }
 }
 
@@ -323,7 +307,7 @@ function toggleAudio() {
   state.soundEnabled = !state.soundEnabled;
   const btn = document.getElementById('sound-toggle-btn');
   if (btn) btn.innerHTML = state.soundEnabled ? '🔊' : '🔇';
-  showToast(state.soundEnabled ? "Audio chimes enabled" : "Audio muted", "info");
+  showToast(state.soundEnabled ? "Audio enabled" : "Audio muted", "info");
 }
 
 // =========================================================
@@ -332,14 +316,11 @@ function toggleAudio() {
 
 function connectSSE() {
   const liveIndicator = document.getElementById('live-indicator');
-  const liveText = document.getElementById('live-text');
-
   const es = new EventSource('/api/events');
 
   es.onopen = () => {
     state.isConnected = true;
-    if (liveIndicator) liveIndicator.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 pulse-live';
-    if (liveText) liveText.textContent = 'Live Sync';
+    if (liveIndicator) liveIndicator.className = 'w-2 h-2 rounded-full bg-emerald-500 pulse-live';
   };
 
   es.addEventListener('state_updated', (e) => {
@@ -347,15 +328,12 @@ function connectSSE() {
       const data = JSON.parse(e.data);
       handleLiveEvent(data);
       loadState(false);
-    } catch (err) {
-      console.error("SSE parse error", err);
-    }
+    } catch (err) {}
   });
 
   es.onerror = () => {
     state.isConnected = false;
-    if (liveIndicator) liveIndicator.className = 'w-2.5 h-2.5 rounded-full bg-rose-500';
-    if (liveText) liveText.textContent = 'Reconnecting...';
+    if (liveIndicator) liveIndicator.className = 'w-2 h-2 rounded-full bg-rose-500';
   };
 }
 
@@ -364,51 +342,32 @@ function handleLiveEvent(data) {
 
   if (data.action === 'item_added') {
     if (!isMe) {
-      sendPhoneNotification(
-        "🛒 Palachrakk: New Item Added",
-        `${data.actor || 'A friend'} added "${data.title}" (${data.quantity || '1'}) to the grocery list.`
-      );
+      sendPhoneNotification("🛒 PALACHARAK: New Item", `${data.actor || 'A friend'} added "${data.title}"`);
       playSound('add');
     }
     showToast(`${data.actor || 'Someone'} added: ${data.title}`, 'info');
   } else if (data.action === 'item_toggled') {
     if (data.is_bought) {
       if (!isMe) {
-        sendPhoneNotification(
-          "✓ Palachrakk: Item Checked Out",
-          `${data.actor || 'A friend'} bought "${data.title}" at the supermarket!`
-        );
+        sendPhoneNotification("✓ PALACHARAK: Item Bought", `${data.actor || 'A friend'} bought "${data.title}"`);
         playSound('buy');
       }
       showToast(`${data.actor || 'Someone'} bought: ${data.title}`, 'success');
     }
   } else if (data.action === 'bill_added') {
     if (!isMe) {
-      sendPhoneNotification(
-        "🧾 Palachrakk: New Bill Added (€)",
-        `${data.payer} added a €${Number(data.amount).toFixed(2)} bill for ${data.store}`
-      );
+      sendPhoneNotification("🧾 PALACHARAK: New Bill (€)", `${data.payer} added €${Number(data.amount).toFixed(2)} bill`);
       playSound('bill');
     }
-    showToast(`${data.payer} added a €${Number(data.amount).toFixed(2)} bill for ${data.store}!`, 'purple');
+    showToast(`${data.payer} added €${Number(data.amount).toFixed(2)} bill for ${data.store}!`, 'purple');
   } else if (data.action === 'settlement') {
     if (!isMe) {
-      sendPhoneNotification(
-        "💶 Palachrakk: Debt Settled",
-        `${data.from} paid €${Number(data.amount).toFixed(2)} to ${data.to}`
-      );
+      sendPhoneNotification("💶 PALACHARAK: Debt Settled", `${data.from} paid €${Number(data.amount).toFixed(2)} to ${data.to}`);
       playSound('settle');
     }
-    showToast(`${data.from} paid €${Number(data.amount).toFixed(2)} to ${data.to} (Settled)`, 'success');
-  } else if (data.action === 'cleared_bought') {
-    if (!isMe) {
-      playSound('clear');
-    }
-    showToast(`${data.actor} cleared purchased items`, 'info');
-  } else if (data.action === 'user_logged_in') {
-    if (!isMe) {
-      showToast(`${data.actor} just logged in`, 'info');
-    }
+    showToast(`${data.from} paid €${Number(data.amount).toFixed(2)} to ${data.to}`, 'success');
+  } else if (data.action === 'member_removed') {
+    showToast(`Member removed: ${data.name}`, 'info');
   }
 }
 
@@ -442,7 +401,6 @@ async function loadState(initial = false) {
       renderGroceryList();
       renderBillsAndSplits();
       renderFriendsDirectory();
-      renderActivityFeed();
       checkPhoneNotificationStatus();
     } else {
       showAuthScreen();
@@ -453,45 +411,28 @@ async function loadState(initial = false) {
 }
 
 // =========================================================
-// 5. RENDERERS
+// 5. RENDERERS (Clean & Streamlined)
 // =========================================================
 
 function renderLockedUserProfile() {
   const pill = document.getElementById('user-profile-pill');
-  const addIndicator = document.getElementById('logged-in-adding-indicator');
+  if (!state.currentUser || !pill) return;
 
-  if (!state.currentUser) return;
-
-  if (addIndicator) {
-    addIndicator.textContent = `Adding as ${state.currentUser.name}`;
-  }
-
-  if (pill) {
-    const isAdmin = state.currentUser.is_admin;
-    pill.innerHTML = `
-      <div class="flex items-center gap-2 bg-white/95 border border-slate-200/90 rounded-2xl px-2.5 py-1.5 shadow-xs">
-        <span class="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-black shadow-xs" style="background-color: ${state.currentUser.avatar_color || '#10b981'}">
-          ${(state.currentUser.name || 'U')[0].toUpperCase()}
-        </span>
-        <div class="text-left leading-tight hidden sm:block">
-          <div class="text-[9px] uppercase font-bold text-slate-400 flex items-center gap-1">
-            <span>Signed In</span>
-            ${isAdmin ? '<span class="text-amber-500 font-extrabold">★ Admin</span>' : ''}
-          </div>
-          <div class="text-xs font-bold text-slate-800">${escapeHtml(state.currentUser.name)}</div>
-        </div>
-        <button onclick="logout()" class="ml-1 px-2 py-1 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 text-xs font-bold transition flex items-center gap-1" title="Log Out">
-          <span>🚪</span>
-          <span class="text-[10px] hidden sm:inline">Logout</span>
-        </button>
-      </div>
-    `;
-  }
+  const isAdmin = state.currentUser.is_admin;
+  pill.innerHTML = `
+    <div class="flex items-center gap-1.5 bg-slate-100/90 rounded-xl px-2 py-1">
+      <span class="w-5 h-5 rounded-lg flex items-center justify-center text-white text-[10px] font-bold" style="background-color: ${state.currentUser.avatar_color || '#10b981'}">
+        ${(state.currentUser.name || 'U')[0].toUpperCase()}
+      </span>
+      <span class="text-xs font-bold text-slate-800">${escapeHtml(state.currentUser.name)}</span>
+      ${isAdmin ? '<span class="text-[9px] bg-amber-100 text-amber-800 font-extrabold px-1.5 py-0.2 rounded-md">Admin</span>' : ''}
+      <button onclick="logout()" class="ml-1 text-slate-400 hover:text-rose-600 text-xs font-bold" title="Log Out">✕</button>
+    </div>
+  `;
 
   const groceryBadge = document.getElementById('tab-grocery-badge');
   if (groceryBadge) {
     groceryBadge.textContent = state.activeItems.length;
-    groceryBadge.className = `ml-1.5 px-2 py-0.5 text-xs rounded-full font-bold ${state.activeItems.length > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`;
   }
 }
 
@@ -505,50 +446,38 @@ function renderGroceryList() {
 
   let filtered = state.activeItems.filter(item => {
     const matchesCat = state.selectedCategory === 'All' || item.category === state.selectedCategory;
-    const matchesSearch = !state.searchQuery || item.title.toLowerCase().includes(state.searchQuery.toLowerCase());
-    return matchesCat && matchesSearch;
+    return matchesCat;
   });
 
   if (filtered.length === 0) {
     container.innerHTML = `
-      <div class="text-center py-14 bg-white/70 rounded-3xl border border-dashed border-slate-200">
-        <div class="text-5xl mb-3">🛒</div>
-        <h3 class="text-slate-800 font-bold text-base">All clear in this section!</h3>
-        <p class="text-slate-500 text-xs mt-1 max-w-xs mx-auto">No items in the grocery list. Use the quick add bar above to add what you need from the supermarket.</p>
+      <div class="text-center py-10 bg-white rounded-2xl border border-dashed border-slate-200">
+        <div class="text-3xl mb-1">🛒</div>
+        <div class="text-slate-800 font-bold text-sm">Grocery list is clear!</div>
+        <p class="text-slate-400 text-xs mt-0.5">Use the box above to add what you need from the supermarket.</p>
       </div>
     `;
   } else {
     container.innerHTML = filtered.map(item => `
-      <div class="group bg-white rounded-2xl p-3.5 border border-slate-100 shadow-sm hover:shadow-md transition flex items-center justify-between gap-3 animate-slide-down">
-        <div class="flex items-center gap-3.5 min-w-0 flex-1">
+      <div class="bg-white rounded-2xl p-3 border border-slate-100 shadow-xs flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3 min-w-0 flex-1">
           <input type="checkbox" 
                  class="custom-checkbox flex-shrink-0" 
                  onchange="toggleItemBought(${item.id})"
                  title="Mark as bought" />
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2 flex-wrap">
-              <span class="font-bold text-slate-800 text-sm tracking-tight truncate">${escapeHtml(item.title)}</span>
-              ${item.is_urgent ? '<span class="bg-rose-100 text-rose-700 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-rose-200">★ URGENT</span>' : ''}
-              <span class="badge-${item.category} text-[10px] font-bold px-2 py-0.5 rounded-lg">${item.category}</span>
+              <span class="font-bold text-slate-900 text-sm truncate">${escapeHtml(item.title)}</span>
+              <span class="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">${escapeHtml(item.quantity)}</span>
             </div>
             
-            <div class="flex items-center gap-2 mt-1.5 text-xs text-slate-500 flex-wrap">
-              <span class="font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100/60">${escapeHtml(item.quantity)}</span>
-              <span>•</span>
-              <span class="flex items-center gap-1 font-medium text-slate-600">
-                <span class="w-2 h-2 rounded-full inline-block" style="background-color: ${item.added_by_color || '#94a3b8'}"></span>
-                Added by <strong class="text-slate-700">${escapeHtml(item.added_by_name || 'Group')}</strong>
-              </span>
-              ${item.created_at ? `
-                <span>•</span>
-                <span class="text-[11px] text-slate-400 font-medium">🕒 ${formatDateTime(item.created_at)}</span>
-              ` : ''}
+            <div class="flex items-center gap-2 mt-1 text-[11px] text-slate-400 flex-wrap">
+              <span>By <strong class="text-slate-600">${escapeHtml(item.added_by_name || 'Group')}</strong></span>
+              ${item.created_at ? `<span>• 🕒 ${formatDateTime(item.created_at)}</span>` : ''}
             </div>
           </div>
         </div>
-        <button onclick="deleteItem(${item.id})" class="text-slate-300 hover:text-rose-500 p-2 rounded-xl hover:bg-rose-50 transition" title="Delete item">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-        </button>
+        <button onclick="deleteItem(${item.id})" class="text-slate-300 hover:text-rose-500 p-1.5" title="Delete">✕</button>
       </div>
     `).join('');
   }
@@ -560,27 +489,21 @@ function renderGroceryList() {
 
   if (boughtContainer) {
     if (state.boughtItems.length === 0) {
-      boughtContainer.innerHTML = `<p class="text-xs text-slate-400 py-3 text-center italic">Items marked as bought at the supermarket will show up here.</p>`;
+      boughtContainer.innerHTML = `<p class="text-xs text-slate-400 py-2 text-center italic">Purchased items will appear here.</p>`;
     } else {
       boughtContainer.innerHTML = state.boughtItems.map(item => `
-        <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/80 border border-slate-100 text-xs">
-          <div class="flex items-center gap-2.5 min-w-0">
-            <button onclick="toggleItemBought(${item.id})" class="w-6 h-6 rounded-lg bg-emerald-600 text-white flex items-center justify-center text-xs font-bold hover:bg-emerald-700 transition" title="Move back to active cart">
-              ✓
-            </button>
+        <div class="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100 text-xs">
+          <div class="flex items-center gap-2 min-w-0">
+            <button onclick="toggleItemBought(${item.id})" class="w-5 h-5 rounded-md bg-emerald-600 text-white flex items-center justify-center text-[10px] font-bold" title="Put back to cart">✓</button>
             <div class="min-w-0">
-              <span class="line-through text-slate-400 font-medium">${escapeHtml(item.title)}</span>
-              <span class="text-slate-400 text-[11px] ml-1.5">(${escapeHtml(item.quantity)})</span>
-              
-              <div class="text-[11px] text-slate-500 mt-0.5">
-                Bought by <strong class="text-slate-700">${escapeHtml(item.bought_by_name || 'Someone')}</strong>
-                ${item.bought_at ? `<span class="text-slate-400 ml-1.5">• 🕒 ${formatDateTime(item.bought_at)}</span>` : ''}
+              <span class="line-through text-slate-400 font-medium">${escapeHtml(item.title)} (${escapeHtml(item.quantity)})</span>
+              <div class="text-[10px] text-slate-400">
+                Bought by <strong class="text-slate-600">${escapeHtml(item.bought_by_name || 'Someone')}</strong>
+                ${item.bought_at ? `• 🕒 ${formatDateTime(item.bought_at)}` : ''}
               </div>
             </div>
           </div>
-          <button onclick="deleteItem(${item.id})" class="text-slate-300 hover:text-rose-500 p-1.5" title="Remove permanently">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-          </button>
+          <button onclick="deleteItem(${item.id})" class="text-slate-300 hover:text-rose-500 p-1" title="Remove">✕</button>
         </div>
       `).join('');
     }
@@ -593,35 +516,25 @@ function renderCategoryPills() {
   const container = document.getElementById('category-pills');
   if (!container) return;
 
-  const categories = ['All', 'Produce', 'Dairy', 'Bakery', 'Pantry', 'Snacks', 'Drinks', 'Household', 'Frozen', 'Meat', 'Other'];
-  const counts = { All: state.activeItems.length };
-  for (const item of state.activeItems) {
-    counts[item.category] = (counts[item.category] || 0) + 1;
-  }
-
+  const categories = ['All', 'Produce', 'Dairy', 'Bakery', 'Pantry', 'Snacks', 'Drinks', 'Meat', 'Other'];
   container.innerHTML = categories.map(cat => {
     const isSelected = state.selectedCategory === cat;
-    const count = counts[cat] || 0;
     return `
       <button onclick="selectCategory('${cat}')" 
-              class="flex-shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+              class="flex-shrink-0 px-3 py-1 rounded-xl text-xs font-bold transition ${
                 isSelected 
-                  ? 'bg-slate-900 text-white shadow-sm' 
-                  : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+                  ? 'bg-slate-900 text-white' 
+                  : 'bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-100'
               }">
-        <span>${cat}</span>
-        <span class="text-[10px] px-1.5 py-0.2 rounded-full ${isSelected ? 'bg-slate-700 text-slate-200' : 'bg-slate-100 text-slate-500'} font-semibold">${count}</span>
+        ${cat}
       </button>
     `;
   }).join('');
 }
 
 function renderBillsAndSplits() {
-  const totalSpentEl = document.getElementById('stat-total-spent');
   const myBalanceEl = document.getElementById('stat-my-balance');
   const myBalanceLabel = document.getElementById('stat-my-balance-label');
-
-  if (totalSpentEl) totalSpentEl.textContent = `€${Number(state.stats.total_spent || 0).toFixed(2)}`;
 
   const myBalObj = state.balances.find(b => b.id === (state.currentUser ? state.currentUser.id : null));
   const myBal = myBalObj ? myBalObj.balance : 0.0;
@@ -629,15 +542,15 @@ function renderBillsAndSplits() {
   if (myBalanceEl) {
     if (myBal > 0.01) {
       myBalanceEl.textContent = `+€${myBal.toFixed(2)}`;
-      myBalanceEl.className = 'text-2xl font-extrabold text-emerald-600';
-      if (myBalanceLabel) myBalanceLabel.textContent = 'You are owed';
+      myBalanceEl.className = 'text-2xl font-black text-emerald-600';
+      if (myBalanceLabel) myBalanceLabel.textContent = 'You are owed by friends';
     } else if (myBal < -0.01) {
       myBalanceEl.textContent = `-€${Math.abs(myBal).toFixed(2)}`;
-      myBalanceEl.className = 'text-2xl font-extrabold text-rose-600';
+      myBalanceEl.className = 'text-2xl font-black text-rose-600';
       if (myBalanceLabel) myBalanceLabel.textContent = 'You owe the group';
     } else {
       myBalanceEl.textContent = '€0.00';
-      myBalanceEl.className = 'text-2xl font-extrabold text-slate-800';
+      myBalanceEl.className = 'text-2xl font-black text-slate-800';
       if (myBalanceLabel) myBalanceLabel.textContent = 'All settled up';
     }
   }
@@ -647,85 +560,34 @@ function renderBillsAndSplits() {
   if (transfersContainer) {
     if (state.transfers.length === 0) {
       transfersContainer.innerHTML = `
-        <div class="p-6 text-center bg-emerald-50/60 rounded-2xl border border-emerald-100">
-          <div class="text-3xl mb-1">🎉</div>
-          <div class="text-sm font-bold text-emerald-800">Everyone is fully squared away!</div>
-          <div class="text-xs text-emerald-600 mt-0.5">No outstanding grocery debts between friends in €.</div>
+        <div class="p-4 text-center bg-emerald-50/60 rounded-2xl border border-emerald-100">
+          <div class="text-sm font-bold text-emerald-800">🎉 Everyone is squared away! No outstanding debts.</div>
         </div>
       `;
     } else {
       transfersContainer.innerHTML = state.transfers.map(t => {
         const isMeFrom = state.currentUser && t.from_id === state.currentUser.id;
-        const isMeTo = state.currentUser && t.to_id === state.currentUser.id;
         return `
-          <div class="p-4 rounded-2xl bg-white border ${isMeFrom ? 'border-rose-200 bg-rose-50/30' : isMeTo ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-100'} shadow-sm flex items-center justify-between gap-3">
-            <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-2xl flex items-center justify-center font-bold text-sm bg-slate-100 text-slate-700">
-                💶
+          <div class="p-3.5 rounded-2xl bg-white border border-slate-100 shadow-xs flex items-center justify-between gap-3">
+            <div>
+              <div class="text-xs text-slate-500 font-medium">
+                <strong class="text-slate-800 font-bold">${escapeHtml(t.from_name)}</strong> owes <strong class="text-slate-800 font-bold">${escapeHtml(t.to_name)}</strong>
               </div>
-              <div>
-                <div class="text-xs text-slate-500 font-medium">
-                  <strong class="text-slate-800 font-bold">${escapeHtml(t.from_name)}</strong> owes <strong class="text-slate-800 font-bold">${escapeHtml(t.to_name)}</strong>
-                </div>
-                <div class="text-lg font-black text-slate-900 mt-0.5">€${Number(t.amount).toFixed(2)}</div>
-              </div>
+              <div class="text-base font-black text-slate-900 mt-0.5">€${Number(t.amount).toFixed(2)}</div>
             </div>
             ${isMeFrom ? `
               <button onclick="openSettleModal(${t.to_id}, '${escapeHtml(t.to_name)}', ${t.amount})" 
-                      class="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-emerald-600 text-white font-bold text-xs shadow-sm transition flex items-center gap-1.5">
-                <span>Pay Back</span>
-                <span>✓</span>
+                      class="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-emerald-600 text-white font-bold text-xs transition">
+                Pay Back ✓
               </button>
-            ` : `
-              <span class="text-[11px] font-semibold text-slate-400 bg-slate-50 px-2.5 py-1 rounded-xl">Pending</span>
-            `}
+            ` : ''}
           </div>
         `;
       }).join('');
     }
   }
 
-  // Bills list in Euros (€)
-  const billsContainer = document.getElementById('bills-list-container');
-  if (billsContainer) {
-    if (state.bills.length === 0) {
-      billsContainer.innerHTML = `
-        <div class="text-center py-8 text-xs text-slate-400">
-          No bills recorded yet. Click "Add Supermarket Bill" when someone pays in Euros at checkout!
-        </div>
-      `;
-    } else {
-      billsContainer.innerHTML = state.bills.map(b => `
-        <div class="p-4 rounded-2xl bg-white border border-slate-100 shadow-sm hover:shadow-md transition">
-          <div class="flex items-center justify-between gap-2">
-            <div>
-              <div class="font-bold text-slate-800 text-sm flex items-center gap-2">
-                <span>🛒 ${escapeHtml(b.store_name)}</span>
-                <span class="text-xs text-slate-400 font-normal">• ${escapeHtml(b.bill_date)}</span>
-              </div>
-              <div class="text-xs text-slate-500 mt-0.5">
-                Paid by <strong class="text-slate-700">${escapeHtml(b.paid_by_name)}</strong>
-              </div>
-            </div>
-            <div class="text-right">
-              <div class="text-base font-black text-slate-900">€${Number(b.total_amount).toFixed(2)}</div>
-              <div class="text-[10px] text-slate-400">Split by ${b.splits.length} friends</div>
-            </div>
-          </div>
-          <div class="mt-3 pt-2.5 border-t border-slate-50 flex items-center gap-1.5 flex-wrap">
-            <span class="text-[10px] text-slate-400 font-semibold mr-1">Split (€${(b.total_amount / (b.splits.length || 1)).toFixed(2)} each):</span>
-            ${b.splits.map(s => `
-              <span class="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-medium">
-                ${escapeHtml(s.member_name)}
-              </span>
-            `).join('')}
-          </div>
-        </div>
-      `).join('');
-    }
-  }
-
-  // Group balances breakdown table
+  // Group balances breakdown
   const balancesContainer = document.getElementById('member-balances-container');
   if (balancesContainer) {
     balancesContainer.innerHTML = state.balances.map(m => {
@@ -733,145 +595,134 @@ function renderBillsAndSplits() {
       const isNegative = m.balance < -0.01;
       const isMe = state.currentUser && m.id === state.currentUser.id;
       return `
-        <div class="flex items-center justify-between py-2 border-b border-slate-50 last:border-0 text-xs">
-          <div class="flex items-center gap-2">
-            <span class="w-6 h-6 rounded-full text-[10px] flex items-center justify-center text-white font-bold" style="background-color: ${m.avatar_color}">
-              ${m.name[0].toUpperCase()}
-            </span>
-            <span class="font-bold text-slate-700">${escapeHtml(m.name)} ${isMe ? '<span class="text-[10px] text-emerald-600 font-semibold">(You)</span>' : ''}</span>
-          </div>
-          <div class="font-extrabold ${isPositive ? 'text-emerald-600' : isNegative ? 'text-rose-600' : 'text-slate-400'}">
+        <div class="flex items-center justify-between py-1.5 border-b border-slate-50 last:border-0 text-xs">
+          <span class="font-bold text-slate-700">${escapeHtml(m.name)} ${isMe ? '(You)' : ''}</span>
+          <span class="font-black ${isPositive ? 'text-emerald-600' : isNegative ? 'text-rose-600' : 'text-slate-400'}">
             ${isPositive ? '+' : ''}€${m.balance.toFixed(2)}
-          </div>
+          </span>
         </div>
       `;
     }).join('');
   }
+
+  // Bills list
+  const billsContainer = document.getElementById('bills-list-container');
+  if (billsContainer) {
+    if (state.bills.length === 0) {
+      billsContainer.innerHTML = `<div class="text-center py-4 text-xs text-slate-400">No bills added yet.</div>`;
+    } else {
+      billsContainer.innerHTML = state.bills.map(b => `
+        <div class="p-3 rounded-2xl bg-white border border-slate-100 shadow-xs flex items-center justify-between">
+          <div>
+            <div class="font-bold text-slate-800 text-xs">🛒 ${escapeHtml(b.store_name)}</div>
+            <div class="text-[11px] text-slate-400">Paid by ${escapeHtml(b.paid_by_name)} • ${escapeHtml(b.bill_date)}</div>
+          </div>
+          <div class="text-right">
+            <div class="text-sm font-black text-slate-900">€${Number(b.total_amount).toFixed(2)}</div>
+            <div class="text-[10px] text-slate-400">Split by ${b.splits.length}</div>
+          </div>
+        </div>
+      `).join('');
+    }
+  }
 }
 
 // =========================================================
-// 5B. FRIENDS & LOGIN TRACKER RENDERER
+// 5B. FRIENDS DIRECTORY & WORKING ADMIN REMOVE
 // =========================================================
 
 function renderFriendsDirectory() {
   const container = document.getElementById('friends-list-container');
-  const totalFriendsEl = document.getElementById('stat-total-friends');
-  const onlineFriendsEl = document.getElementById('stat-online-friends');
+  const summaryEl = document.getElementById('stat-friends-summary');
   const onlineBadgeEl = document.getElementById('tab-online-badge');
 
-  if (totalFriendsEl) totalFriendsEl.textContent = state.members.length;
-  
   const onlineCount = state.members.filter(m => m.is_online).length;
-  if (onlineFriendsEl) onlineFriendsEl.textContent = onlineCount;
+  if (summaryEl) summaryEl.textContent = `${state.members.length} members • ${onlineCount} online`;
   if (onlineBadgeEl) onlineBadgeEl.textContent = `${onlineCount} Online`;
 
   if (!container) return;
 
-  if (state.members.length === 0) {
-    container.innerHTML = `<div class="text-center py-8 text-xs text-slate-400">No members registered yet.</div>`;
-    return;
-  }
-
-  const isAdmin = state.currentUser && state.currentUser.is_admin;
+  const isAdmin = state.currentUser && Boolean(state.currentUser.is_admin);
 
   container.innerHTML = state.members.map(m => {
     const isMe = state.currentUser && m.id === state.currentUser.id;
     return `
-      <div class="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm hover:shadow-md transition space-y-3">
-        <div class="flex items-center justify-between gap-3">
-          <div class="flex items-center gap-3">
-            <div class="relative">
-              <span class="w-10 h-10 rounded-2xl flex items-center justify-center text-white text-sm font-bold shadow-xs" style="background-color: ${m.avatar_color || '#10b981'}">
-                ${m.name[0].toUpperCase()}
-              </span>
-              <span class="w-3.5 h-3.5 rounded-full absolute -bottom-1 -right-1 border-2 border-white ${m.is_online ? 'bg-emerald-500 pulse-live' : 'bg-slate-300'}" title="${m.is_online ? 'Online now' : 'Offline'}"></span>
-            </div>
-            <div>
-              <div class="flex items-center gap-2 flex-wrap">
-                <span class="font-bold text-slate-800 text-sm">${escapeHtml(m.name)}</span>
-                ${m.is_admin ? '<span class="bg-amber-100 text-amber-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-amber-200">👑 Group Admin</span>' : ''}
-                ${isMe ? '<span class="bg-emerald-50 text-emerald-700 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-emerald-200">You</span>' : ''}
-              </div>
-              <div class="text-xs text-slate-400 mt-0.5 font-medium">@${escapeHtml(m.username || m.name.toLowerCase().replace(/\s+/g, ''))}</div>
-            </div>
+      <div class="bg-white rounded-2xl p-3.5 border border-slate-100 shadow-xs flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="relative">
+            <span class="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-bold" style="background-color: ${m.avatar_color || '#10b981'}">
+              ${m.name[0].toUpperCase()}
+            </span>
+            <span class="w-2.5 h-2.5 rounded-full absolute -bottom-0.5 -right-0.5 border-2 border-white ${m.is_online ? 'bg-emerald-500 pulse-live' : 'bg-slate-300'}"></span>
           </div>
-
-          <!-- Presence Pill -->
-          <div>
-            ${m.is_online 
-              ? `<span class="bg-emerald-50 text-emerald-700 text-[11px] font-extrabold px-3 py-1 rounded-xl border border-emerald-200 flex items-center gap-1.5 shadow-xs"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> Online Now</span>`
-              : `<span class="bg-slate-100 text-slate-500 text-[11px] font-semibold px-2.5 py-1 rounded-xl">Offline</span>`
-            }
+          <div class="min-w-0">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="font-bold text-slate-800 text-sm truncate">${escapeHtml(m.name)}</span>
+              ${m.is_admin ? '<span class="text-[9px] bg-amber-100 text-amber-800 font-extrabold px-1.5 py-0.2 rounded-md">Admin</span>' : ''}
+              ${isMe ? '<span class="text-[9px] bg-emerald-50 text-emerald-700 font-extrabold px-1.5 py-0.2 rounded-md">You</span>' : ''}
+            </div>
+            <div class="text-[11px] text-slate-400 mt-0.5">
+              ${m.is_online 
+                ? '<strong class="text-emerald-600 font-semibold">Online now</strong>' 
+                : (m.last_login ? `Last login: ${formatDateTime(m.last_login)}` : 'Offline')}
+            </div>
           </div>
         </div>
 
-        <!-- Login Details & Timestamps -->
-        <div class="pt-2.5 border-t border-slate-50 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-500">
-          <div class="flex items-center gap-1.5">
-            <span class="text-slate-400">🕒 Last Logged In:</span>
-            <strong class="text-slate-700">${m.last_login ? formatDateTime(m.last_login) : (m.created_at ? formatDateTime(m.created_at) : 'Active')}</strong>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <span class="text-slate-400">📅 Date Joined:</span>
-            <strong class="text-slate-700">${m.created_at ? formatDateTime(m.created_at) : 'Starter Member'}</strong>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <span class="text-slate-400">🛒 Contribution:</span>
-            <span class="text-slate-600 font-semibold">${m.items_added_count || 0} items added • ${m.items_bought_count || 0} purchases</span>
-          </div>
+        <div class="flex items-center gap-2">
           ${isAdmin && !isMe ? `
-            <div class="text-right">
-              <button onclick="removeMember(${m.id}, '${escapeHtml(m.name)}')" class="text-rose-600 hover:text-rose-800 text-[11px] font-bold underline">
-                Remove User
-              </button>
-            </div>
+            <button onclick="removeMember(${m.id}, '${escapeHtml(m.name)}')" 
+                    class="px-2.5 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition flex items-center gap-1"
+                    title="Remove member">
+              <span>Remove</span>
+              <span>✕</span>
+            </button>
           ` : ''}
         </div>
       </div>
     `;
   }).join('');
+
+  // Recent activity feed
+  const actContainer = document.getElementById('activity-list-container');
+  if (actContainer) {
+    if (state.activities.length === 0) {
+      actContainer.innerHTML = `<div class="text-center py-3 text-xs text-slate-400">No activity yet.</div>`;
+    } else {
+      actContainer.innerHTML = state.activities.slice(0, 15).map(a => `
+        <div class="p-2.5 rounded-xl bg-white border border-slate-100 text-xs flex items-center justify-between gap-2">
+          <span class="text-slate-700 font-medium">${escapeHtml(a.message)}</span>
+          <span class="text-[10px] text-slate-400 flex-shrink-0">${formatDateTime(a.created_at)}</span>
+        </div>
+      `).join('');
+    }
+  }
 }
 
+/**
+ * Robust Admin Member Removal
+ */
 async function removeMember(memberId, memberName) {
-  if (!confirm(`Are you sure you want to remove ${memberName} from Palachrakk?`)) return;
+  if (!confirm(`Are you sure you want to remove "${memberName}" from PALACHARAK?`)) return;
+
   try {
     const res = await fetch('/api/members/remove', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({ member_id: memberId })
     });
-    if (res.ok) {
-      showToast(`${memberName} was removed.`, 'info');
-      loadState();
+    const data = await res.json();
+
+    if (res.ok && data.success) {
+      showToast(`Removed ${memberName} from PALACHARAK.`, 'info');
+      await loadState();
     } else {
-      const d = await res.json();
-      showToast(d.error || 'Failed to remove member.', 'warning');
+      alert(data.error || 'Failed to remove member.');
     }
-  } catch (e) {
-    console.error('Error removing member:', e);
+  } catch (err) {
+    console.error('Error removing member:', err);
+    alert('Network error removing member.');
   }
-}
-
-function renderActivityFeed() {
-  const container = document.getElementById('activity-list-container');
-  if (!container) return;
-
-  if (state.activities.length === 0) {
-    container.innerHTML = `<div class="text-center py-8 text-xs text-slate-400">No activity yet.</div>`;
-    return;
-  }
-
-  container.innerHTML = state.activities.map(a => `
-    <div class="flex items-start gap-3 p-3 rounded-2xl bg-white border border-slate-100 shadow-sm text-xs">
-      <div class="w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs bg-slate-100 flex-shrink-0 mt-0.5">
-        ${a.action_type === 'item_added' ? '➕' : a.action_type === 'item_toggled' ? '🛒' : a.action_type === 'bill_added' ? '🧾' : a.action_type === 'settlement_recorded' ? '💶' : a.action_type === 'member_login' ? '🔑' : '📢'}
-      </div>
-      <div class="min-w-0 flex-1">
-        <div class="text-slate-800 font-medium leading-relaxed">${escapeHtml(a.message)}</div>
-        <div class="text-[10px] text-slate-400 mt-1">${formatDateTime(a.created_at)}</div>
-      </div>
-    </div>
-  `).join('');
 }
 
 // =========================================================
@@ -883,12 +734,10 @@ async function addItem(e) {
   const titleInput = document.getElementById('item-title-input');
   const qtyInput = document.getElementById('item-qty-input');
   const catInput = document.getElementById('item-cat-input');
-  const urgentInput = document.getElementById('item-urgent-input');
 
   const title = titleInput.value.trim();
   const quantity = qtyInput.value.trim() || '1';
   const category = catInput.value;
-  const is_urgent = urgentInput ? urgentInput.checked : false;
 
   if (!title) return;
 
@@ -896,12 +745,12 @@ async function addItem(e) {
     const res = await fetch('/api/items', {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ title, quantity, category, is_urgent })
+      body: JSON.stringify({ title, quantity, category })
     });
 
     if (res.ok) {
       titleInput.value = '';
-      if (urgentInput) urgentInput.checked = false;
+      qtyInput.value = '';
       titleInput.focus();
       playSound('add');
       loadState();
@@ -922,14 +771,10 @@ async function toggleItemBought(itemId) {
     });
     if (res.ok) {
       const data = await res.json();
-      if (data.is_bought) {
-        playSound('buy');
-      }
+      if (data.is_bought) playSound('buy');
       loadState();
     }
-  } catch (err) {
-    console.error("Failed to toggle item:", err);
-  }
+  } catch (err) {}
 }
 
 async function deleteItem(itemId) {
@@ -939,16 +784,12 @@ async function deleteItem(itemId) {
       headers: getAuthHeaders(),
       body: JSON.stringify({ item_id: itemId })
     });
-    if (res.ok) {
-      loadState();
-    }
-  } catch (err) {
-    console.error("Failed to delete item:", err);
-  }
+    if (res.ok) loadState();
+  } catch (err) {}
 }
 
 async function clearBoughtItems() {
-  if (!confirm("Are you sure you want to clear all purchased items from the history?")) return;
+  if (!confirm("Clear all purchased items?")) return;
   try {
     const res = await fetch('/api/items/clear-bought', {
       method: 'POST',
@@ -959,9 +800,7 @@ async function clearBoughtItems() {
       playSound('clear');
       loadState();
     }
-  } catch (err) {
-    console.error("Failed to clear bought items:", err);
-  }
+  } catch (err) {}
 }
 
 async function submitBill(e) {
@@ -980,7 +819,7 @@ async function submitBill(e) {
   const date = dateInput.value;
 
   if (isNaN(amount) || amount <= 0) {
-    showToast("Please enter a valid bill total in Euros.", "warning");
+    showToast("Please enter a valid amount in Euros.", "warning");
     return;
   }
   if (splitWith.length === 0) {
@@ -1006,12 +845,10 @@ async function submitBill(e) {
       closeModal('add-bill-modal');
       amountInput.value = '';
       storeInput.value = '';
-      showToast(`Bill of €${amount.toFixed(2)} added & split!`, 'purple');
+      showToast(`Bill of €${amount.toFixed(2)} added!`, 'purple');
       loadState();
     }
-  } catch (err) {
-    console.error("Failed to submit bill:", err);
-  }
+  } catch (err) {}
 }
 
 async function submitSettlement(e) {
@@ -1030,27 +867,25 @@ async function submitSettlement(e) {
     if (res.ok) {
       playSound('settle');
       closeModal('settle-modal');
-      showToast(`Payment of €${amount.toFixed(2)} recorded! Balances updated.`, "success");
+      showToast(`Payment of €${amount.toFixed(2)} recorded!`, "success");
       loadState();
     }
-  } catch (err) {
-    console.error("Failed to settle debt:", err);
-  }
+  } catch (err) {}
 }
 
-// Navigation & Category Filtering
+// Navigation Tabs
 function switchTab(tabId) {
   state.activeTab = tabId;
-  const tabs = ['grocery', 'bills', 'friends', 'activity'];
+  const tabs = ['grocery', 'bills', 'friends'];
   tabs.forEach(t => {
     const content = document.getElementById(`tab-content-${t}`);
     const btn = document.getElementById(`tab-btn-${t}`);
     if (content) content.style.display = (t === tabId) ? 'block' : 'none';
     if (btn) {
       if (t === tabId) {
-        btn.className = 'flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-slate-900 text-white font-bold text-xs shadow-md transition';
+        btn.className = 'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-2xl bg-slate-900 text-white font-bold text-xs shadow-sm transition';
       } else {
-        btn.className = 'flex items-center gap-2 px-4 py-2.5 rounded-2xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold text-xs transition';
+        btn.className = 'flex-1 flex items-center justify-center gap-1.5 py-2 rounded-2xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold text-xs transition';
       }
     }
   });
@@ -1058,11 +893,6 @@ function switchTab(tabId) {
 
 function selectCategory(cat) {
   state.selectedCategory = cat;
-  renderGroceryList();
-}
-
-function onSearchInput(val) {
-  state.searchQuery = val;
   renderGroceryList();
 }
 
@@ -1102,11 +932,8 @@ function openAddBillModal() {
 
   if (splitCheckboxesContainer) {
     splitCheckboxesContainer.innerHTML = state.members.map(m => `
-      <label class="flex items-center justify-between p-2 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
-        <span class="flex items-center gap-2 text-xs font-semibold text-slate-700">
-          <span class="w-4 h-4 rounded-full" style="background-color: ${m.avatar_color}"></span>
-          ${escapeHtml(m.name)} ${state.currentUser && m.id === state.currentUser.id ? '(You)' : ''}
-        </span>
+      <label class="flex items-center justify-between p-2 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer text-xs">
+        <span class="font-semibold text-slate-700">${escapeHtml(m.name)}</span>
         <input type="checkbox" class="split-member-checkbox custom-checkbox" value="${m.id}" checked />
       </label>
     `).join('');
@@ -1121,7 +948,7 @@ function openSettleModal(toId, toName, amount) {
   document.getElementById('settle-to-id').value = toId;
 
   if (infoEl) {
-    infoEl.innerHTML = `Recording payment from <strong class="text-slate-800">${escapeHtml(state.currentUser.name)} (You)</strong> to <strong class="text-slate-800">${escapeHtml(toName)}</strong>`;
+    infoEl.innerHTML = `Paying <strong class="text-slate-800">${escapeHtml(toName)}</strong>`;
   }
   if (amountInput) {
     amountInput.value = amount.toFixed(2);
@@ -1130,7 +957,6 @@ function openSettleModal(toId, toName, amount) {
   openModal('settle-modal');
 }
 
-// Helpers
 function escapeHtml(str) {
   if (!str) return '';
   return String(str)
@@ -1159,27 +985,18 @@ function formatDateTime(dateStr) {
   }
 }
 
-// PWA Installation & Service Worker
+// PWA Install Prompt
 let deferredPrompt = null;
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').then((reg) => {
-      console.log('Palachrakk ServiceWorker registered:', reg.scope);
-    }).catch(err => {
-      console.log('ServiceWorker note:', err);
-    });
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
   });
 }
 
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
-  const installBtn = document.getElementById('pwa-install-btn');
-  if (installBtn) {
-    installBtn.classList.remove('hidden');
-    installBtn.classList.add('inline-flex');
-  }
 });
 
 function triggerPwaInstall() {
@@ -1187,17 +1004,16 @@ function triggerPwaInstall() {
     deferredPrompt.prompt();
     deferredPrompt.userChoice.then((choiceResult) => {
       if (choiceResult.outcome === 'accepted') {
-        showToast('Palachrakk app installed to your home screen!', 'success');
+        showToast('PALACHARAK app installed!', 'success');
       }
       deferredPrompt = null;
     });
   } else {
-    // Open visual step-by-step install guide modal
     openModal('install-guide-modal');
   }
 }
 
-// Initialization on DOM Load
+// DOM Load
 window.addEventListener('DOMContentLoaded', () => {
   if (state.authToken) {
     loadState(true);
@@ -1207,7 +1023,6 @@ window.addEventListener('DOMContentLoaded', () => {
 
   connectSSE();
 
-  // Close modals on clicking background backdrop
   window.addEventListener('click', (e) => {
     if (e.target.classList.contains('modal-backdrop')) {
       e.target.classList.add('hidden');

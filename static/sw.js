@@ -1,5 +1,5 @@
-// Palachrakk Service Worker - Offline Caching & Mobile System Notifications
-const CACHE_NAME = 'palachrakk-v3';
+// PALACHARAK Service Worker - Offline Caching & Mobile System Notifications
+const CACHE_NAME = 'palacharak-v5';
 const STATIC_ASSETS = [
   '/',
   '/style.css',
@@ -39,7 +39,6 @@ self.addEventListener('fetch', (e) => {
   );
 });
 
-// When user taps on the phone notification bar alert
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   event.waitUntil(

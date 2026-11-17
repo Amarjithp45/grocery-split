@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Palachrakk — Group Grocery List & Bill Splitting</title>
+  <title>PALACHARAK — Grocery & Bill Split</title>
   
   <!-- PWA Meta Tags -->
   <link rel="manifest" href="/manifest.json">
@@ -11,7 +11,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="Palachrakk">
+  <meta name="apple-mobile-web-app-title" content="PALACHARAK">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
   <!-- Tailwind CSS CDN -->
@@ -20,32 +20,24 @@
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen antialiased flex flex-col selection:bg-emerald-100 selection:text-emerald-900">
 
-  <!-- Toast Notification Container (Floating) -->
+  <!-- Floating Toast Notifications -->
   <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col pointer-events-none max-w-sm w-full"></div>
 
   <!-- ========================================== -->
-  <!-- 1. AUTH SCREEN (Shown when logged out)     -->
+  <!-- 1. AUTH SCREEN (Clean & Simple)            -->
   <!-- ========================================== -->
   <div id="auth-screen" class="min-h-screen flex items-center justify-center p-4">
-    <div class="max-w-md w-full bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xl shadow-slate-200/50 space-y-5">
+    <div class="max-w-md w-full bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-xl space-y-5">
       
       <!-- Brand & Header -->
       <div class="text-center space-y-2">
-        <div class="w-14 h-14 mx-auto rounded-3xl bg-emerald-600 text-white flex items-center justify-center text-3xl shadow-lg shadow-emerald-600/30">
+        <div class="w-14 h-14 mx-auto rounded-2xl bg-emerald-600 text-white flex items-center justify-center text-3xl shadow-md shadow-emerald-600/30">
           🛒
         </div>
-        <h1 class="text-2xl font-black text-slate-900 tracking-tight">Palachrakk</h1>
-        <p class="text-xs text-slate-500 font-medium max-w-xs mx-auto">
-          Shared supermarket shopping checklist and automatic bill-splitting for you and your friends.
+        <h1 class="text-2xl font-black text-slate-900 tracking-tight">PALACHARAK</h1>
+        <p class="text-xs text-slate-500 font-medium">
+          Shared grocery checklist and easy bill splitting in Euros (€)
         </p>
-
-        <!-- Install App Banner on Login Screen -->
-        <div class="pt-1">
-          <button onclick="triggerPwaInstall()" class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 text-xs font-bold transition shadow-xs">
-            <span>📲</span>
-            <span>Install App on Your Phone</span>
-          </button>
-        </div>
       </div>
 
       <!-- Auth Switcher Tabs -->
@@ -54,18 +46,18 @@
           Sign In
         </button>
         <button id="auth-tab-register" onclick="switchAuthTab('register')" class="flex-1 py-2 text-xs font-bold rounded-xl text-slate-500 hover:text-slate-800 transition">
-          Register New Friend
+          Register
         </button>
       </div>
 
-      <!-- Error / Alert Banner -->
+      <!-- Error Banner -->
       <div id="auth-error" class="hidden p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700"></div>
 
       <!-- Sign In Form -->
-      <form id="login-form" onsubmit="handleLogin(event)" class="space-y-4">
+      <form id="login-form" onsubmit="handleLogin(event)" class="space-y-3.5">
         <div>
           <label class="block text-xs font-bold text-slate-600 mb-1">Username</label>
-          <input id="login-username" type="text" required placeholder="e.g. amar" 
+          <input id="login-username" type="text" required placeholder="Enter your username..." 
                  class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-sm font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 transition" />
         </div>
 
@@ -76,21 +68,21 @@
         </div>
 
         <button type="submit" class="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-md shadow-emerald-600/30 transition active:scale-95">
-          Sign In to Palachrakk
+          Sign In
         </button>
       </form>
 
       <!-- Register Form -->
-      <form id="register-form" onsubmit="handleRegister(event)" class="space-y-4 hidden">
+      <form id="register-form" onsubmit="handleRegister(event)" class="space-y-3.5 hidden">
         <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1">Your Real / Display Name</label>
+          <label class="block text-xs font-bold text-slate-600 mb-1">Your Full Name</label>
           <input id="reg-name" type="text" required placeholder="e.g. Amar" 
                  class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-sm font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 transition" />
         </div>
 
         <div>
           <label class="block text-xs font-bold text-slate-600 mb-1">Username (for sign in)</label>
-          <input id="reg-username" type="text" required placeholder="e.g. amar45" 
+          <input id="reg-username" type="text" required placeholder="e.g. amar" 
                  class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-sm font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 transition" />
         </div>
 
@@ -101,188 +93,143 @@
         </div>
 
         <button type="submit" class="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-md shadow-emerald-600/30 transition active:scale-95">
-          Create Account & Join Group
+          Create Account
         </button>
       </form>
 
-      <div class="text-center pt-2">
-        <p class="text-[11px] text-slate-400 font-medium">Your identity is locked once you log in — no one else can act on your behalf.</p>
+      <div class="text-center pt-1">
+        <button onclick="triggerPwaInstall()" class="text-emerald-700 hover:underline text-xs font-bold">
+          📲 Install PALACHARAK App
+        </button>
       </div>
 
     </div>
   </div>
 
   <!-- ========================================== -->
-  <!-- 2. MAIN APPLICATION (Shown when logged in) -->
+  <!-- 2. MAIN APPLICATION (Simple 3 Tabs)        -->
   <!-- ========================================== -->
   <div id="app-screen" class="hidden flex-col min-h-screen">
 
     <!-- Header -->
-    <header class="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs">
-      <div class="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-        <!-- Brand & Status -->
-        <div class="flex items-center gap-2.5">
-          <div class="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center text-xl shadow-md shadow-emerald-600/20">
-            🛒
-          </div>
+    <header class="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80">
+      <div class="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+        <!-- Brand -->
+        <div class="flex items-center gap-2">
+          <span class="text-2xl">🛒</span>
           <div>
-            <div class="flex items-center gap-2">
-              <h1 class="text-base font-extrabold tracking-tight text-slate-900 leading-none">Palachrakk</h1>
-              <div class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[10px] font-semibold text-slate-600">
-                <span id="live-indicator" class="w-2 h-2 rounded-full bg-emerald-500 pulse-live"></span>
-                <span id="live-text">Live Sync</span>
-              </div>
+            <h1 class="text-base font-black tracking-tight text-slate-900 leading-none">PALACHARAK</h1>
+            <div class="flex items-center gap-1.5 mt-0.5">
+              <span id="live-indicator" class="w-2 h-2 rounded-full bg-emerald-500 pulse-live"></span>
+              <span class="text-[10px] text-slate-400 font-semibold">Live Sync</span>
             </div>
-            <p class="text-[11px] text-slate-500 font-medium">Grocery shopping & split in Euros (€)</p>
           </div>
         </div>
 
-        <!-- User Controls -->
+        <!-- Controls & User Pill -->
         <div class="flex items-center gap-2">
-          <!-- Install App button (Always visible) -->
-          <button id="pwa-install-btn" onclick="triggerPwaInstall()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm shadow-emerald-600/20 transition" title="Install Palachrakk App">
+          <!-- Install Button -->
+          <button onclick="triggerPwaInstall()" class="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition flex items-center gap-1" title="Install App">
             <span>📲</span>
-            <span class="hidden sm:inline">Install App</span>
+            <span class="hidden sm:inline">App</span>
           </button>
 
-          <!-- Sound toggle -->
-          <button id="sound-toggle-btn" onclick="toggleAudio()" class="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition text-sm" title="Toggle audio chimes">
+          <!-- Audio Toggle -->
+          <button id="sound-toggle-btn" onclick="toggleAudio()" class="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 text-sm" title="Toggle audio">
             🔊
           </button>
 
-          <!-- Push Notifications toggle -->
-          <button id="notif-toggle-btn" onclick="toggleBrowserNotifications()" class="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition text-sm" title="Toggle phone notifications">
-            🔔
-          </button>
-
-          <!-- Locked User Profile Pill & Logout -->
-          <div id="user-profile-pill" class="flex items-center gap-2"></div>
+          <!-- User Profile & Logout -->
+          <div id="user-profile-pill"></div>
         </div>
       </div>
 
-      <!-- Navigation Tabs (With Friends & Logins) -->
-      <div class="max-w-3xl mx-auto px-4 pt-1 pb-2.5 flex items-center gap-2 overflow-x-auto">
-        <button id="tab-btn-grocery" onclick="switchTab('grocery')" class="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-900 text-white font-bold text-xs shadow-md transition">
-          <span>🛒 Grocery Cart</span>
-          <span id="tab-grocery-badge" class="ml-1 px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 text-[10px]">0</span>
+      <!-- Simple 3 Navigation Tabs -->
+      <div class="max-w-2xl mx-auto px-4 pb-2.5 flex items-center justify-around gap-2">
+        <button id="tab-btn-grocery" onclick="switchTab('grocery')" class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-2xl bg-slate-900 text-white font-bold text-xs shadow-sm transition">
+          <span>🛒 Grocery</span>
+          <span id="tab-grocery-badge" class="px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 text-[10px]">0</span>
         </button>
 
-        <button id="tab-btn-bills" onclick="switchTab('bills')" class="flex items-center gap-2 px-4 py-2 rounded-2xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold text-xs transition">
-          <span>🧾 Bills & Split (€)</span>
+        <button id="tab-btn-bills" onclick="switchTab('bills')" class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-2xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold text-xs transition">
+          <span>💶 Split (€)</span>
         </button>
 
-        <button id="tab-btn-friends" onclick="switchTab('friends')" class="flex items-center gap-2 px-4 py-2 rounded-2xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold text-xs transition">
-          <span>👥 Friends & Logins</span>
-          <span id="tab-online-badge" class="ml-1 px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">1 Online</span>
-        </button>
-
-        <button id="tab-btn-activity" onclick="switchTab('activity')" class="flex items-center gap-2 px-4 py-2 rounded-2xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold text-xs transition">
-          <span>⚡ Activity Log</span>
+        <button id="tab-btn-friends" onclick="switchTab('friends')" class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-2xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold text-xs transition">
+          <span>👥 Friends</span>
+          <span id="tab-online-badge" class="px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">1 Online</span>
         </button>
       </div>
     </header>
 
-    <!-- Mobile System Notification Prompt Banner -->
-    <div id="notif-permission-banner" class="hidden bg-emerald-600 text-white px-4 py-2.5 text-xs font-semibold shadow-md">
-      <div class="max-w-3xl mx-auto flex items-center justify-between gap-3">
-        <div class="flex items-center gap-2">
-          <span class="text-base">🔔</span>
-          <span>Receive alerts in your phone status bar when friends add or buy items!</span>
-        </div>
-        <button onclick="requestPhoneNotificationPermission()" class="px-3 py-1 bg-white text-emerald-800 rounded-xl font-bold text-xs shadow-xs hover:bg-emerald-50 transition flex-shrink-0">
-          Turn On Alerts
+    <!-- Notification Bar Permission Banner -->
+    <div id="notif-permission-banner" class="hidden bg-emerald-600 text-white px-4 py-2 text-xs font-semibold">
+      <div class="max-w-2xl mx-auto flex items-center justify-between gap-3">
+        <span>🔔 Get alerts on your phone status bar when items are added or bought!</span>
+        <button onclick="requestPhoneNotificationPermission()" class="px-2.5 py-1 bg-white text-emerald-800 rounded-lg font-bold text-xs flex-shrink-0">
+          Turn On
         </button>
       </div>
     </div>
 
-    <!-- Main Content Container -->
-    <main class="max-w-3xl w-full mx-auto px-4 py-5 flex-1">
+    <!-- Main Content -->
+    <main class="max-w-2xl w-full mx-auto px-4 py-4 flex-1">
 
       <!-- ========================================== -->
-      <!-- TAB 1: GROCERY CHECKLIST                   -->
+      <!-- TAB 1: GROCERY CHECKLIST (Clean & Focused) -->
       <!-- ========================================== -->
-      <div id="tab-content-grocery" class="space-y-5">
+      <div id="tab-content-grocery" class="space-y-4">
         
-        <!-- Quick Add Grocery Bar -->
-        <section class="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/80 shadow-sm">
-          <form onsubmit="addItem(event)" class="space-y-3">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">Add to supermarket list</span>
-              <span id="logged-in-adding-indicator" class="text-[11px] font-semibold text-slate-500"></span>
-            </div>
-            <div class="flex flex-col sm:flex-row gap-2.5">
+        <!-- Quick Add Box -->
+        <section class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs">
+          <form onsubmit="addItem(event)" class="space-y-2.5">
+            <div class="flex gap-2">
               <input id="item-title-input" 
                      type="text" 
                      required
-                     placeholder="Item name (e.g., Oat Milk, Bananas, Pasta)..." 
-                     class="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-sm font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition" />
+                     placeholder="Item name (e.g., Milk, Rice, Eggs)..." 
+                     class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-500" />
               
-              <div class="flex items-center gap-2">
-                <input id="item-qty-input" 
-                       type="text" 
-                       placeholder="Qty (e.g. 2, 500g)" 
-                       class="w-28 bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2.5 text-sm font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition" />
-
-                <select id="item-cat-input" 
-                        class="bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2.5 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition">
-                  <option value="Produce">🥦 Produce</option>
-                  <option value="Dairy">🥛 Dairy</option>
-                  <option value="Bakery">🍞 Bakery</option>
-                  <option value="Pantry" selected>🥫 Pantry</option>
-                  <option value="Snacks">🍿 Snacks</option>
-                  <option value="Drinks">🧃 Drinks</option>
-                  <option value="Meat">🥩 Meat</option>
-                  <option value="Frozen">🧊 Frozen</option>
-                  <option value="Household">🧼 Household</option>
-                  <option value="Other">📦 Other</option>
-                </select>
-              </div>
+              <input id="item-qty-input" 
+                     type="text" 
+                     placeholder="Qty (e.g. 2)" 
+                     class="w-24 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-500" />
             </div>
 
-            <div class="flex items-center justify-between pt-1">
-              <label class="flex items-center gap-2 cursor-pointer select-none">
-                <input type="checkbox" id="item-urgent-input" class="custom-checkbox w-5 h-5" />
-                <span class="text-xs font-bold text-slate-600">Urgent / Priority item</span>
-              </label>
+            <div class="flex items-center justify-between gap-2">
+              <select id="item-cat-input" class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-700 focus:outline-none">
+                <option value="Produce">🥦 Produce</option>
+                <option value="Dairy">🥛 Dairy</option>
+                <option value="Bakery">🍞 Bakery</option>
+                <option value="Pantry" selected>🥫 Pantry</option>
+                <option value="Snacks">🍿 Snacks</option>
+                <option value="Drinks">🧃 Drinks</option>
+                <option value="Meat">🥩 Meat</option>
+                <option value="Other">📦 Other</option>
+              </select>
 
-              <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs px-5 py-2.5 rounded-2xl shadow-sm shadow-emerald-600/30 transition flex items-center gap-1.5">
-                <span>Add to Cart</span>
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"></path></svg>
+              <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition flex items-center gap-1 shadow-xs">
+                <span>Add Item</span>
+                <span>➕</span>
               </button>
             </div>
           </form>
         </section>
 
-        <!-- Category Filter Pills & Search -->
-        <section class="space-y-3">
-          <div class="flex items-center gap-3">
-            <div class="relative flex-1">
-              <input type="text" 
-                     oninput="onSearchInput(this.value)"
-                     placeholder="Search list..." 
-                     class="w-full bg-white border border-slate-200/80 rounded-2xl pl-9 pr-4 py-2 text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 transition" />
-              <svg class="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-            </div>
-          </div>
+        <!-- Category Filters -->
+        <div id="category-pills" class="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs"></div>
 
-          <div id="category-pills" class="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-            <!-- Dynamic category pills -->
-          </div>
-        </section>
-
-        <!-- Active Grocery Items List -->
-        <section class="space-y-2.5">
+        <!-- Active Grocery Items -->
+        <section class="space-y-2">
           <div class="flex items-center justify-between px-1">
-            <h2 class="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Needed at Store</h2>
-            <span class="text-[11px] text-slate-400">Shows date & time added • Tap checkmark when bought</span>
+            <h2 class="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Needed Items</h2>
+            <span class="text-[11px] text-slate-400">Tap checkbox when bought</span>
           </div>
-          <div id="grocery-items-container" class="space-y-2">
-            <!-- Active items render here with date and time -->
-          </div>
+          <div id="grocery-items-container" class="space-y-2"></div>
         </section>
 
-        <!-- Purchased / Cleared Items Tray -->
-        <section class="mt-8 pt-6 border-t border-slate-200/80 space-y-3">
+        <!-- Purchased / Checked Out Items Tray -->
+        <section class="pt-4 border-t border-slate-200/80 space-y-2">
           <div class="flex items-center justify-between px-1">
             <div class="flex items-center gap-2">
               <h3 class="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Purchased Items</h3>
@@ -290,126 +237,75 @@
             </div>
             <button id="clear-bought-btn" 
                     onclick="clearBoughtItems()" 
-                    class="text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-xl transition flex items-center gap-1.5"
+                    class="text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 px-3 py-1.5 rounded-xl transition"
                     style="display: none;">
-              <span>🧹 Clear Purchased</span>
+              🧹 Clear All
             </button>
           </div>
-          <div id="bought-items-container" class="space-y-1.5">
-            <!-- Bought items render here with checkout date and time -->
-          </div>
+          <div id="bought-items-container" class="space-y-1.5"></div>
         </section>
 
       </div>
 
       <!-- ========================================== -->
-      <!-- TAB 2: BILLS & EXPENSE SPLITTING (EUROS)   -->
+      <!-- TAB 2: BILLS & SPLIT (EUROS)               -->
       <!-- ========================================== -->
-      <div id="tab-content-bills" class="space-y-6" style="display: none;">
+      <div id="tab-content-bills" class="space-y-4" style="display: none;">
         
-        <!-- Split Stats Cards -->
-        <section class="grid grid-cols-2 gap-3 sm:gap-4">
-          <div class="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/80 shadow-sm">
-            <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Groceries Spent</div>
-            <div id="stat-total-spent" class="text-2xl font-black text-slate-900 mt-1">€0.00</div>
-            <div class="text-[11px] text-slate-500 mt-0.5">Recorded across all shopping trips</div>
-          </div>
-
-          <div class="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/80 shadow-sm">
-            <div id="stat-my-balance-label" class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Your Balance</div>
-            <div id="stat-my-balance" class="text-2xl font-black text-slate-800 mt-1">€0.00</div>
-            <div class="text-[11px] text-slate-500 mt-0.5">Based on bills and settlements</div>
-          </div>
-        </section>
-
-        <!-- Action Button: Add Bill -->
-        <div class="flex items-center justify-between">
+        <!-- Summary Balance Card -->
+        <div class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex items-center justify-between gap-4">
           <div>
-            <h2 class="text-sm font-extrabold text-slate-900">Settlement & Splits (€)</h2>
-            <p class="text-xs text-slate-500">Track who owes whom in Euros and settle debts</p>
+            <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Your Balance</div>
+            <div id="stat-my-balance" class="text-2xl font-black text-slate-800 mt-0.5">€0.00</div>
+            <div id="stat-my-balance-label" class="text-xs text-slate-500 mt-0.5">All settled up</div>
           </div>
-          <button onclick="openAddBillModal()" class="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm shadow-emerald-600/30 flex items-center gap-1.5 transition active:scale-95">
-            <span>➕ Add Supermarket Bill</span>
+          <button onclick="openAddBillModal()" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition flex items-center gap-1.5 flex-shrink-0">
+            <span>➕ Add Bill</span>
           </button>
         </div>
 
-        <!-- Who Owes Whom (Debt Simplification Cards) -->
-        <section class="space-y-2.5">
-          <div class="text-xs font-extrabold text-slate-400 uppercase tracking-wider px-1">Simplified Transfers (€)</div>
-          <div id="transfers-container" class="space-y-2.5">
-            <!-- Transfer cards render here -->
-          </div>
+        <!-- Who Owes Whom (Simplified Transfers) -->
+        <section class="space-y-2">
+          <h2 class="text-xs font-extrabold text-slate-400 uppercase tracking-wider px-1">Who Owes Whom (€)</h2>
+          <div id="transfers-container" class="space-y-2"></div>
         </section>
 
-        <!-- Group Balances Breakdown -->
-        <section class="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm space-y-3">
-          <h3 class="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Group Net Balances (€)</h3>
-          <div id="member-balances-container" class="space-y-1">
-            <!-- Balances breakdown -->
-          </div>
+        <!-- Group Balances -->
+        <section class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-2">
+          <h3 class="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Group Balances</h3>
+          <div id="member-balances-container" class="space-y-1"></div>
         </section>
 
-        <!-- Recent Grocery Bills History -->
-        <section class="space-y-3">
-          <div class="text-xs font-extrabold text-slate-400 uppercase tracking-wider px-1">Past Grocery Bills</div>
-          <div id="bills-list-container" class="space-y-3">
-            <!-- Bills render here -->
-          </div>
+        <!-- Past Bills List -->
+        <section class="space-y-2">
+          <h3 class="text-xs font-extrabold text-slate-400 uppercase tracking-wider px-1">Past Grocery Bills</h3>
+          <div id="bills-list-container" class="space-y-2"></div>
         </section>
 
       </div>
 
       <!-- ========================================== -->
-      <!-- TAB 3: FRIENDS & ADMIN LOGIN TRACKER       -->
+      <!-- TAB 3: FRIENDS & ADMIN DIRECTORY           -->
       <!-- ========================================== -->
-      <div id="tab-content-friends" class="space-y-5" style="display: none;">
+      <div id="tab-content-friends" class="space-y-4" style="display: none;">
         
-        <!-- Summary Stats Cards -->
-        <section class="grid grid-cols-2 gap-3 sm:gap-4">
-          <div class="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/80 shadow-sm">
-            <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Registered Friends</div>
-            <div id="stat-total-friends" class="text-2xl font-black text-slate-900 mt-1">0</div>
-            <div class="text-[11px] text-slate-500 mt-0.5">Friends with accounts</div>
-          </div>
-
-          <div class="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/80 shadow-sm">
-            <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Currently Online</div>
-            <div class="flex items-center gap-2 mt-1">
-              <span id="stat-online-friends" class="text-2xl font-black text-emerald-600">0</span>
-              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 pulse-live inline-block"></span>
-            </div>
-            <div class="text-[11px] text-slate-500 mt-0.5">Active in the last 5 minutes</div>
-          </div>
-        </section>
-
-        <!-- Admin View Header -->
         <div class="flex items-center justify-between px-1">
           <div>
-            <h2 class="text-sm font-extrabold text-slate-900">Member Directory & Logins</h2>
-            <p class="text-xs text-slate-500">Live tracker showing who has registered, who is online, and login timestamps</p>
+            <h2 class="text-sm font-extrabold text-slate-900">Friends & Online Status</h2>
+            <p class="text-xs text-slate-500">See who is in the group and who is currently online</p>
           </div>
+          <span id="stat-friends-summary" class="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-100"></span>
         </div>
 
-        <!-- Friends List Cards -->
-        <section id="friends-list-container" class="space-y-3">
-          <!-- Member cards render here -->
+        <!-- Friends List -->
+        <section id="friends-list-container" class="space-y-2.5"></section>
+
+        <!-- Recent Activity Section inside Friends -->
+        <section class="pt-4 border-t border-slate-200/80 space-y-2">
+          <h3 class="text-xs font-extrabold text-slate-400 uppercase tracking-wider px-1">Recent Activity</h3>
+          <div id="activity-list-container" class="space-y-2"></div>
         </section>
 
-      </div>
-
-      <!-- ========================================== -->
-      <!-- TAB 4: ACTIVITY FEED                       -->
-      <!-- ========================================== -->
-      <div id="tab-content-activity" class="space-y-4" style="display: none;">
-        <div class="flex items-center justify-between px-1">
-          <div>
-            <h2 class="text-sm font-extrabold text-slate-900">Activity Log</h2>
-            <p class="text-xs text-slate-500">Live stream of changes, logins, and purchases made by friends</p>
-          </div>
-        </div>
-        <div id="activity-list-container" class="space-y-2.5">
-          <!-- Activities render here -->
-        </div>
       </div>
 
     </main>
@@ -420,55 +316,29 @@
   <!-- MODAL: INSTALL APP INSTRUCTIONS            -->
   <!-- ========================================== -->
   <div id="install-guide-modal" class="modal-backdrop fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs hidden items-center justify-center p-4">
-    <div class="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl border border-slate-100 space-y-5 animate-slide-down">
+    <div class="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-100 space-y-4 animate-slide-down">
       <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2.5">
-          <div class="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center text-xl font-bold shadow-md shadow-emerald-600/30">
-            📲
-          </div>
-          <div>
-            <h3 class="text-base font-extrabold text-slate-900 leading-tight">Install Palachrakk</h3>
-            <p class="text-xs text-slate-500">Get the full app on your phone home screen</p>
-          </div>
+        <div class="flex items-center gap-2">
+          <span class="text-2xl">📲</span>
+          <h3 class="text-base font-extrabold text-slate-900">Install PALACHARAK</h3>
         </div>
-        <button onclick="closeModal('install-guide-modal')" class="text-slate-400 hover:text-slate-600 p-1.5 text-lg">✕</button>
+        <button onclick="closeModal('install-guide-modal')" class="text-slate-400 hover:text-slate-600 p-1">✕</button>
       </div>
 
-      <!-- Instructions by Platform -->
-      <div class="space-y-4 text-xs">
-        
-        <!-- Android Guide -->
-        <div class="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
-          <div class="font-extrabold text-slate-800 flex items-center gap-2 text-sm">
-            <span>🤖 Android (Chrome)</span>
-          </div>
-          <ol class="list-decimal list-inside space-y-1.5 text-slate-600 font-medium pl-1">
-            <li>Tap the <strong class="text-slate-800">3 vertical dots (⋮)</strong> in the top-right corner of Chrome.</li>
-            <li>Tap <strong class="text-slate-800">"Install app"</strong> or <strong class="text-slate-800">"Add to Home screen"</strong>.</li>
-            <li>Tap <strong class="text-slate-800">"Install"</strong> to confirm.</li>
-          </ol>
+      <div class="space-y-3 text-xs text-slate-600">
+        <div class="p-3 rounded-2xl bg-slate-50 border border-slate-100 space-y-1">
+          <strong class="text-slate-800 text-sm">🤖 Android Phone:</strong>
+          <p>Tap Chrome's <strong>3 dots (⋮)</strong> in top-right ➔ tap <strong>"Install app"</strong>.</p>
         </div>
-
-        <!-- iPhone Guide -->
-        <div class="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
-          <div class="font-extrabold text-slate-800 flex items-center gap-2 text-sm">
-            <span>🍏 iPhone & iPad (Safari)</span>
-          </div>
-          <ol class="list-decimal list-inside space-y-1.5 text-slate-600 font-medium pl-1">
-            <li>Open this link in <strong class="text-slate-800">Safari</strong>.</li>
-            <li>Tap the <strong class="text-slate-800">Share button</strong> (square with arrow ⎋ at bottom).</li>
-            <li>Scroll down and tap <strong class="text-slate-800">"Add to Home Screen"</strong>.</li>
-            <li>Tap <strong class="text-slate-800">"Add"</strong> in the top right.</li>
-          </ol>
+        <div class="p-3 rounded-2xl bg-slate-50 border border-slate-100 space-y-1">
+          <strong class="text-slate-800 text-sm">🍏 iPhone (Safari):</strong>
+          <p>Tap the <strong>Share button (⎋)</strong> at the bottom ➔ tap <strong>"Add to Home Screen"</strong>.</p>
         </div>
-
       </div>
 
-      <div class="pt-1 flex items-center justify-end">
-        <button onclick="closeModal('install-guide-modal')" class="w-full py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs transition">
-          Got It!
-        </button>
-      </div>
+      <button onclick="closeModal('install-guide-modal')" class="w-full py-2.5 rounded-xl bg-slate-900 text-white font-bold text-xs transition">
+        Done
+      </button>
     </div>
   </div>
 
@@ -479,50 +349,46 @@
     <div class="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-100 space-y-4 animate-slide-down">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <div class="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center text-sm font-bold">🧾</div>
+          <span class="text-xl">🧾</span>
           <h3 class="text-base font-extrabold text-slate-900">Add Supermarket Bill</h3>
         </div>
         <button onclick="closeModal('add-bill-modal')" class="text-slate-400 hover:text-slate-600 p-1">✕</button>
       </div>
 
-      <form onsubmit="submitBill(event)" class="space-y-3.5">
+      <form onsubmit="submitBill(event)" class="space-y-3">
         <div>
           <label class="block text-xs font-bold text-slate-600 mb-1">Store Name / Trip</label>
           <input id="bill-store-input" type="text" required placeholder="e.g. Lidl, Aldi, Carrefour, SPAR" 
-                 class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3.5 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-500" />
+                 class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-500" />
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-bold text-slate-600 mb-1">Total Bill Amount (€)</label>
+            <label class="block text-xs font-bold text-slate-600 mb-1">Total Amount (€)</label>
             <input id="bill-amount-input" type="number" step="0.01" min="0.01" required placeholder="0.00" 
-                   class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3.5 py-2 text-sm font-bold text-slate-800 focus:outline-none focus:border-emerald-500" />
+                   class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-sm font-bold text-slate-800 focus:outline-none focus:border-emerald-500" />
           </div>
 
           <div>
             <label class="block text-xs font-bold text-slate-600 mb-1">Date</label>
             <input id="bill-date-input" type="date" required 
-                   class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:border-emerald-500" />
+                   class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:border-emerald-500" />
           </div>
         </div>
 
         <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1">Who paid for this bill?</label>
-          <select id="bill-payer-select" class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3.5 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-500">
-            <!-- Payer options -->
-          </select>
+          <label class="block text-xs font-bold text-slate-600 mb-1">Who paid?</label>
+          <select id="bill-payer-select" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-500"></select>
         </div>
 
         <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1.5">Split with friends (Equally in €)</label>
-          <div id="bill-split-members" class="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
-            <!-- Member split checkboxes -->
-          </div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">Split with friends (Equally in €)</label>
+          <div id="bill-split-members" class="grid grid-cols-2 gap-2 max-h-36 overflow-y-auto"></div>
         </div>
 
         <div class="pt-2 flex items-center justify-end gap-2">
-          <button type="button" onclick="closeModal('add-bill-modal')" class="px-4 py-2 rounded-xl text-slate-500 font-semibold text-xs hover:bg-slate-100">Cancel</button>
-          <button type="submit" class="px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md shadow-emerald-600/30 transition">Save & Split (€)</button>
+          <button type="button" onclick="closeModal('add-bill-modal')" class="px-3.5 py-2 rounded-xl text-slate-500 font-semibold text-xs hover:bg-slate-100">Cancel</button>
+          <button type="submit" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition">Save & Split (€)</button>
         </div>
       </form>
     </div>
@@ -535,13 +401,13 @@
     <div class="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-100 space-y-4 animate-slide-down">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <div class="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center text-sm font-bold">💶</div>
+          <span class="text-xl">💶</span>
           <h3 class="text-base font-extrabold text-slate-900">Settle Up Debt (€)</h3>
         </div>
         <button onclick="closeModal('settle-modal')" class="text-slate-400 hover:text-slate-600 p-1">✕</button>
       </div>
 
-      <div id="settle-modal-info" class="text-xs text-slate-600 bg-slate-50 p-3 rounded-2xl border border-slate-100"></div>
+      <div id="settle-modal-info" class="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100"></div>
 
       <form onsubmit="submitSettlement(event)" class="space-y-3">
         <input type="hidden" id="settle-to-id" />
@@ -549,12 +415,12 @@
         <div>
           <label class="block text-xs font-bold text-slate-600 mb-1">Amount Paid (€)</label>
           <input id="settle-amount-input" type="number" step="0.01" min="0.01" required 
-                 class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3.5 py-2 text-sm font-bold text-slate-800 focus:outline-none focus:border-emerald-500" />
+                 class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-sm font-bold text-slate-800 focus:outline-none focus:border-emerald-500" />
         </div>
 
         <div class="pt-2 flex items-center justify-end gap-2">
-          <button type="button" onclick="closeModal('settle-modal')" class="px-4 py-2 rounded-xl text-slate-500 font-semibold text-xs hover:bg-slate-100">Cancel</button>
-          <button type="submit" class="px-5 py-2.5 rounded-2xl bg-slate-900 hover:bg-emerald-600 text-white font-bold text-xs shadow-md transition">Confirm Payment (€)</button>
+          <button type="button" onclick="closeModal('settle-modal')" class="px-3.5 py-2 rounded-xl text-slate-500 font-semibold text-xs hover:bg-slate-100">Cancel</button>
+          <button type="submit" class="px-4 py-2 rounded-xl bg-slate-900 hover:bg-emerald-600 text-white font-bold text-xs transition">Confirm (€)</button>
         </div>
       </form>
     </div>

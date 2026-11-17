@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Palachrakk - Collaborative Grocery Shopping & Bill-Splitting Server
+PALACHARAK - Collaborative Grocery Shopping & Bill-Splitting Server
 Features:
 - User Registration & Authentication (hashed passwords + session tokens)
-- Admin Login & Online Presence Tracker (last_login, last_active, online badges)
+- Robust Admin Member Removal (cleans all foreign key dependencies safely)
 - Identity locking (users can only act as themselves)
 - SQLite database persistence with foreign keys
 - Server-Sent Events (SSE) for instant push updates
@@ -97,8 +97,11 @@ def init_db():
         if "last_active" not in cols:
             conn.execute("ALTER TABLE members ADD COLUMN last_active TIMESTAMP")
 
-        # Assign first registered user as Admin
-        conn.execute("UPDATE members SET is_admin = 1 WHERE id = (SELECT MIN(id) FROM members WHERE password_hash IS NOT NULL)")
+        # Guarantee the first registered account is Group Admin
+        conn.execute("""
+            UPDATE members SET is_admin = 1 
+            WHERE id = (SELECT MIN(id) FROM members WHERE password_hash IS NOT NULL)
+        """)
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
@@ -207,12 +210,20 @@ def get_authenticated_member(headers, touch_active=False):
             WHERE s.token = ?
         """, (token,)).fetchone()
 
-        if row and touch_active:
-            now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-            conn.execute("UPDATE members SET last_active = ? WHERE id = ?", (now_str, row["id"]))
-            conn.commit()
+        if row:
+            row_dict = dict(row)
+            # If the user is the earliest registered user with password, treat as admin
+            first_user = conn.execute("SELECT MIN(id) AS min_id FROM members WHERE password_hash IS NOT NULL").fetchone()
+            if first_user and row_dict["id"] == first_user["min_id"]:
+                row_dict["is_admin"] = 1
 
-        return dict(row) if row else None
+            if touch_active:
+                now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+                conn.execute("UPDATE members SET last_active = ? WHERE id = ?", (now_str, row["id"]))
+                conn.commit()
+
+            return row_dict
+        return None
     finally:
         conn.close()
 
@@ -262,21 +273,24 @@ def get_full_state(current_user=None):
     try:
         now_utc = datetime.utcnow()
 
-        # Fetch members with login tracking and item activity stats
         members_rows = conn.execute("""
             SELECT m.id, m.name, m.username, m.avatar_color, m.is_admin, m.last_login, m.last_active, m.created_at,
                    (SELECT COUNT(*) FROM items WHERE added_by = m.id) AS items_added_count,
-                   (SELECT COUNT(*) FROM items WHERE bought_by = m.id) AS items_bought_count,
-                   (SELECT COUNT(*) FROM sessions WHERE member_id = m.id) AS active_sessions_count
+                   (SELECT COUNT(*) FROM items WHERE bought_by = m.id) AS items_bought_count
             FROM members m
             ORDER BY m.is_admin DESC, m.name ASC
         """).fetchall()
+
+        first_user = conn.execute("SELECT MIN(id) AS min_id FROM members WHERE password_hash IS NOT NULL").fetchone()
+        first_user_id = first_user["min_id"] if first_user else None
 
         members = []
         online_count = 0
         for r in members_rows:
             m = dict(r)
-            # User is considered online if last_active is within 5 minutes (300 seconds)
+            if first_user_id and m["id"] == first_user_id:
+                m["is_admin"] = 1
+
             is_online = False
             if m.get("last_active"):
                 try:
@@ -286,7 +300,6 @@ def get_full_state(current_user=None):
                 except Exception:
                     pass
             
-            # If currently logged-in user, mark online
             if current_user and m["id"] == current_user["id"]:
                 is_online = True
 
@@ -369,7 +382,7 @@ def get_full_state(current_user=None):
             FROM activities a
             LEFT JOIN members m ON a.member_id = m.id
             ORDER BY a.id DESC
-            LIMIT 60
+            LIMIT 30
         """).fetchall()]
 
         total_spent = sum(b["total_amount"] for b in bills)
@@ -396,7 +409,7 @@ def get_full_state(current_user=None):
     finally:
         conn.close()
 
-class PalachrakkRequestHandler(BaseHTTPRequestHandler):
+class PalacharakRequestHandler(BaseHTTPRequestHandler):
     def end_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
@@ -537,7 +550,6 @@ class PalachrakkRequestHandler(BaseHTTPRequestHandler):
                 try:
                     with conn:
                         cur = conn.cursor()
-                        # Check if first user with password (make admin)
                         cur.execute("SELECT COUNT(*) AS cnt FROM members WHERE password_hash IS NOT NULL")
                         is_first = (cur.fetchone()["cnt"] == 0)
                         is_admin = 1 if is_first else 0
@@ -550,7 +562,7 @@ class PalachrakkRequestHandler(BaseHTTPRequestHandler):
                         token = secrets.token_hex(32)
                         cur.execute("INSERT INTO sessions (token, member_id) VALUES (?, ?)", (token, member_id))
                         
-                        log_msg = f"👑 {name} registered as Group Admin" if is_admin else f"{name} registered and joined Palachrakk"
+                        log_msg = f"👑 {name} registered as Group Admin" if is_admin else f"{name} registered and joined PALACHARAK"
                         log_activity(conn, log_msg, "member_joined", member_id)
 
                     user_obj = {
@@ -592,11 +604,13 @@ class PalachrakkRequestHandler(BaseHTTPRequestHandler):
                     self.send_error_json("Invalid username or password", status=401)
                     return
 
+                first_user = conn.execute("SELECT MIN(id) AS min_id FROM members WHERE password_hash IS NOT NULL").fetchone()
+                is_admin = 1 if (row["is_admin"] == 1 or (first_user and row["id"] == first_user["min_id"])) else 0
+
                 token = secrets.token_hex(32)
                 with conn:
                     conn.execute("INSERT INTO sessions (token, member_id) VALUES (?, ?)", (token, row["id"]))
-                    # Update last login and last active timestamps
-                    conn.execute("UPDATE members SET last_login = ?, last_active = ? WHERE id = ?", (now_str, now_str, row["id"]))
+                    conn.execute("UPDATE members SET last_login = ?, last_active = ?, is_admin = ? WHERE id = ?", (now_str, now_str, is_admin, row["id"]))
                     log_activity(conn, f"{row['name']} logged in", "member_login", row["id"])
 
                 user_obj = {
@@ -604,7 +618,7 @@ class PalachrakkRequestHandler(BaseHTTPRequestHandler):
                     "name": row["name"],
                     "username": row["username"],
                     "avatar_color": row["avatar_color"],
-                    "is_admin": row["is_admin"]
+                    "is_admin": is_admin
                 }
                 broadcast_event("state_updated", {
                     "action": "user_logged_in",
@@ -634,7 +648,7 @@ class PalachrakkRequestHandler(BaseHTTPRequestHandler):
                 self.send_error_json("Authentication required. Please log in.", status=401)
                 return
 
-            # 1. Add Grocery Item (Records created_at timestamp and locked identity)
+            # 1. Add Grocery Item
             if path == "/api/items":
                 title = body.get("title", "").strip()
                 quantity = body.get("quantity", "1").strip() or "1"
@@ -666,7 +680,7 @@ class PalachrakkRequestHandler(BaseHTTPRequestHandler):
                 self.send_json({"success": True, "id": item_id})
                 return
 
-            # 2. Toggle Item Bought / Checked Out Status
+            # 2. Toggle Item Bought Status
             if path == "/api/items/toggle":
                 item_id = body.get("item_id")
                 if not item_id:
@@ -690,7 +704,7 @@ class PalachrakkRequestHandler(BaseHTTPRequestHandler):
                     )
 
                     msg = (
-                        f"{current_user['name']} checked out / bought: {item['title']}"
+                        f"{current_user['name']} bought: {item['title']}"
                         if new_status
                         else f"{current_user['name']} moved back to cart: {item['title']}"
                     )
@@ -785,7 +799,7 @@ class PalachrakkRequestHandler(BaseHTTPRequestHandler):
 
                     log_activity(
                         conn, 
-                        f"{current_user['name']} recorded a €{total_amount:.2f} bill for {store_name} (Paid by {payer_name})",
+                        f"{current_user['name']} added €{total_amount:.2f} bill for {store_name}",
                         "bill_added", 
                         current_user["id"]
                     )
@@ -826,7 +840,7 @@ class PalachrakkRequestHandler(BaseHTTPRequestHandler):
 
                     log_activity(
                         conn,
-                        f"{current_user['name']} paid €{amount:.2f} to {to_name} (Settled)",
+                        f"{current_user['name']} paid €{amount:.2f} to {to_name}",
                         "settlement_recorded",
                         from_id
                     )
@@ -842,10 +856,10 @@ class PalachrakkRequestHandler(BaseHTTPRequestHandler):
                 self.send_json({"success": True})
                 return
 
-            # 7. Admin Member Removal
+            # 7. Admin Member Removal (Fixed with cascade cleanup)
             if path == "/api/members/remove":
                 if not current_user.get("is_admin"):
-                    self.send_error_json("Admin privileges required", status=403)
+                    self.send_error_json("Only Group Admin can remove members", status=403)
                     return
 
                 target_id = int(body.get("member_id", 0))
@@ -859,10 +873,22 @@ class PalachrakkRequestHandler(BaseHTTPRequestHandler):
                     if not target:
                         self.send_error_json("Member not found", status=404)
                         return
-                    cur.execute("DELETE FROM members WHERE id = ?", (target_id,))
-                    log_activity(conn, f"Admin removed user: {target['name']}", "member_removed", current_user["id"])
 
-                broadcast_event("state_updated", {"action": "member_removed", "name": target["name"]})
+                    target_name = target["name"]
+
+                    # Clean all foreign-key dependent references safely before deleting
+                    cur.execute("DELETE FROM sessions WHERE member_id = ?", (target_id,))
+                    cur.execute("DELETE FROM bill_splits WHERE member_id = ?", (target_id,))
+                    cur.execute("UPDATE items SET added_by = NULL WHERE added_by = ?", (target_id,))
+                    cur.execute("UPDATE items SET bought_by = NULL WHERE bought_by = ?", (target_id,))
+                    cur.execute("UPDATE activities SET member_id = NULL WHERE member_id = ?", (target_id,))
+                    cur.execute("DELETE FROM settlements WHERE from_member_id = ? OR to_member_id = ?", (target_id, target_id))
+                    cur.execute("DELETE FROM bills WHERE paid_by = ?", (target_id,))
+                    cur.execute("DELETE FROM members WHERE id = ?", (target_id,))
+
+                    log_activity(conn, f"Admin removed user: {target_name}", "member_removed", current_user["id"])
+
+                broadcast_event("state_updated", {"action": "member_removed", "name": target_name})
                 self.send_json({"success": True})
                 return
 
@@ -885,23 +911,23 @@ def get_local_ip():
 def run_server(port=8000):
     init_db()
     server_address = ("0.0.0.0", port)
-    httpd = ThreadingHTTPServer(server_address, PalachrakkRequestHandler)
+    httpd = ThreadingHTTPServer(server_address, PalacharakRequestHandler)
     local_ip = get_local_ip()
 
     print("=" * 65)
-    print(" 🛒 Palachrakk - Group Grocery & Bill-Splitting Website")
+    print(" 🛒 PALACHARAK - Group Grocery & Bill-Splitting Website")
     print("=" * 65)
     print(f" ▸ Local Access:       http://localhost:{port}")
     print(f" ▸ Phone / Wi-Fi URL:  http://{local_ip}:{port}")
     print("=" * 65)
-    print(" Admin presence tracking, Euro (€) currency, & Live Sync active")
+    print(" Clean 3-Tab Interface | Euro (€) | Admin Remove Enabled")
     print("=" * 65)
     sys.stdout.flush()
 
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping Palachrakk server...")
+        print("\nStopping PALACHARAK server...")
         httpd.server_close()
 
 if __name__ == "__main__":
