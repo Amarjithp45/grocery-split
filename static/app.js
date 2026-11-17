@@ -70,6 +70,14 @@ async function handleLogin(e) {
   const username = document.getElementById('login-username').value.trim();
   const password = document.getElementById('login-password').value.trim();
   const errorBox = document.getElementById('auth-error');
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+
+  // Show loading state (server may take 15-30s to wake up on Render free tier)
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Signing in… (waking server)';
+  }
+  if (errorBox) errorBox.classList.add('hidden');
 
   try {
     const res = await fetch('/api/auth/login', {
@@ -82,8 +90,10 @@ async function handleLogin(e) {
     if (res.ok && data.token) {
       state.authToken = data.token;
       state.currentUser = data.user;
+      // Persist both token AND user so the app works immediately on next open
       localStorage.setItem('palacharak_token', data.token);
-      showToast(`Welcome back, ${data.user.name}!`, 'success');
+      localStorage.setItem('palacharak_user', JSON.stringify(data.user));
+      showToast(`Welcome back, ${data.user.name}! 👋`, 'success');
       showAppScreen();
       loadState();
     } else {
@@ -94,6 +104,15 @@ async function handleLogin(e) {
     }
   } catch (err) {
     console.error('Login error:', err);
+    if (errorBox) {
+      errorBox.textContent = 'Server is waking up — please try again in a moment.';
+      errorBox.classList.remove('hidden');
+    }
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Sign In';
+    }
   }
 }
 
@@ -103,6 +122,13 @@ async function handleRegister(e) {
   const username = document.getElementById('reg-username').value.trim();
   const password = document.getElementById('reg-password').value.trim();
   const errorBox = document.getElementById('auth-error');
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Creating account…';
+  }
+  if (errorBox) errorBox.classList.add('hidden');
 
   try {
     const res = await fetch('/api/auth/register', {
@@ -115,8 +141,10 @@ async function handleRegister(e) {
     if (res.ok && data.token) {
       state.authToken = data.token;
       state.currentUser = data.user;
+      // Persist both token AND user so the app works immediately on next open
       localStorage.setItem('palacharak_token', data.token);
-      showToast(`Welcome to PALACHARAK, ${data.user.name}!`, 'success');
+      localStorage.setItem('palacharak_user', JSON.stringify(data.user));
+      showToast(`Welcome to PALACHARAK, ${data.user.name}! 🛒`, 'success');
       showAppScreen();
       loadState();
     } else {
@@ -127,6 +155,15 @@ async function handleRegister(e) {
     }
   } catch (err) {
     console.error('Registration error:', err);
+    if (errorBox) {
+      errorBox.textContent = 'Server is waking up — please try again in a moment.';
+      errorBox.classList.remove('hidden');
+    }
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Create Account';
+    }
   }
 }
 
@@ -141,6 +178,7 @@ async function logout() {
   state.authToken = null;
   state.currentUser = null;
   localStorage.removeItem('palacharak_token');
+  localStorage.removeItem('palacharak_user');
   localStorage.removeItem('palachrakk_token');
   localStorage.removeItem('cartshare_token');
   showAuthScreen();
@@ -375,16 +413,32 @@ function handleLiveEvent(data) {
 // 4. FETCH APPLICATION DATA
 // =========================================================
 
+// Retry counter for cold-start reconnection attempts
+let _loadStateRetries = 0;
+const _MAX_RETRIES = 20; // Try for up to ~60s before giving up
+
 async function loadState(initial = false) {
   try {
     const res = await fetch('/api/state', { headers: getAuthHeaders() });
-    
+
     if (res.status === 401) {
-      showAuthScreen();
+      // Only log out if the user explicitly has no cached identity
+      const cachedUser = localStorage.getItem('palacharak_user');
+      if (!cachedUser && !state.currentUser) {
+        // Genuinely not logged in
+        showAuthScreen();
+      } else {
+        // Server restarted — token still valid (HMAC). Retry after a delay.
+        scheduleLoadStateRetry();
+      }
       return;
     }
 
     const data = await res.json();
+
+    // Server responded — reset retry counter
+    _loadStateRetries = 0;
+
     state.currentUser = data.currentUser || state.currentUser;
     state.members = data.members || [];
     state.activeItems = data.active_items || [];
@@ -396,6 +450,8 @@ async function loadState(initial = false) {
     state.stats = data.stats || {};
 
     if (state.currentUser) {
+      // Update cached user (keep name/admin status fresh)
+      localStorage.setItem('palacharak_user', JSON.stringify(state.currentUser));
       showAppScreen();
       renderLockedUserProfile();
       renderGroceryList();
@@ -403,11 +459,40 @@ async function loadState(initial = false) {
       renderFriendsDirectory();
       checkPhoneNotificationStatus();
     } else {
-      showAuthScreen();
+      // Server says no user — only go to auth if we have no local cache either
+      const cachedUser = localStorage.getItem('palacharak_user');
+      if (!cachedUser) {
+        showAuthScreen();
+      } else {
+        scheduleLoadStateRetry();
+      }
     }
   } catch (err) {
-    console.error("Failed to load state:", err);
+    // Network error = Render server waking up. Do NOT log out. Retry silently.
+    console.warn('loadState network error (server waking up?):', err.message);
+    scheduleLoadStateRetry();
   }
+}
+
+function scheduleLoadStateRetry() {
+  if (_loadStateRetries >= _MAX_RETRIES) {
+    // After ~60s of failure, check if we have cached state to show
+    const cachedUser = localStorage.getItem('palacharak_user');
+    if (cachedUser) {
+      // Show cached UI with an offline banner rather than kicking to login
+      showToast('Server unreachable. Working offline.', 'warning');
+    } else {
+      showAuthScreen();
+    }
+    _loadStateRetries = 0;
+    return;
+  }
+  _loadStateRetries++;
+  const delayMs = _loadStateRetries === 1 ? 3000 : 5000;
+  if (_loadStateRetries <= 2) {
+    showToast('Connecting to server…', 'info');
+  }
+  setTimeout(() => loadState(false), delayMs);
 }
 
 // =========================================================
@@ -1015,9 +1100,29 @@ function triggerPwaInstall() {
 
 // DOM Load
 window.addEventListener('DOMContentLoaded', () => {
-  if (state.authToken) {
+  // --- Instant auth restore from localStorage (no server round-trip needed) ---
+  const cachedToken = state.authToken; // already read from localStorage at top
+  const cachedUserStr = localStorage.getItem('palacharak_user');
+
+  if (cachedToken && cachedUserStr) {
+    try {
+      const cachedUser = JSON.parse(cachedUserStr);
+      // Restore user identity immediately from cache
+      state.currentUser = cachedUser;
+      showAppScreen();
+      renderLockedUserProfile(); // Show name/avatar instantly
+      // Then fetch fresh data from server in background (retries if server is waking)
+      loadState(true);
+    } catch (e) {
+      // Corrupt cache — start fresh
+      localStorage.removeItem('palacharak_user');
+      showAuthScreen();
+    }
+  } else if (cachedToken) {
+    // Have token but no cached user — verify with server
     loadState(true);
   } else {
+    // Not logged in
     showAuthScreen();
   }
 
