@@ -3,6 +3,7 @@
  * Features:
  * - Real User Authentication & Registration (Session Tokens)
  * - Identity Locking (Strict single-user sessions)
+ * - Admin Member Directory & Live Online Presence Tracker (last_login, last_active)
  * - Exact Date & Time for Item Additions and Checkouts
  * - Euro (€) Currency across all splits and bills
  * - Mobile System Status Bar Notifications (Service Worker showNotification)
@@ -404,6 +405,10 @@ function handleLiveEvent(data) {
       playSound('clear');
     }
     showToast(`${data.actor} cleared purchased items`, 'info');
+  } else if (data.action === 'user_logged_in') {
+    if (!isMe) {
+      showToast(`${data.actor} just logged in`, 'info');
+    }
   }
 }
 
@@ -436,6 +441,7 @@ async function loadState(initial = false) {
       renderLockedUserProfile();
       renderGroceryList();
       renderBillsAndSplits();
+      renderFriendsDirectory();
       renderActivityFeed();
       checkPhoneNotificationStatus();
     } else {
@@ -447,7 +453,7 @@ async function loadState(initial = false) {
 }
 
 // =========================================================
-// 5. RENDERERS (With Date, Time & Euro €)
+// 5. RENDERERS
 // =========================================================
 
 function renderLockedUserProfile() {
@@ -461,13 +467,17 @@ function renderLockedUserProfile() {
   }
 
   if (pill) {
+    const isAdmin = state.currentUser.is_admin;
     pill.innerHTML = `
       <div class="flex items-center gap-2 bg-white/95 border border-slate-200/90 rounded-2xl px-2.5 py-1.5 shadow-xs">
         <span class="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-black shadow-xs" style="background-color: ${state.currentUser.avatar_color || '#10b981'}">
           ${(state.currentUser.name || 'U')[0].toUpperCase()}
         </span>
         <div class="text-left leading-tight hidden sm:block">
-          <div class="text-[9px] uppercase font-bold text-slate-400">Signed In As</div>
+          <div class="text-[9px] uppercase font-bold text-slate-400 flex items-center gap-1">
+            <span>Signed In</span>
+            ${isAdmin ? '<span class="text-amber-500 font-extrabold">★ Admin</span>' : ''}
+          </div>
           <div class="text-xs font-bold text-slate-800">${escapeHtml(state.currentUser.name)}</div>
         </div>
         <button onclick="logout()" class="ml-1 px-2 py-1 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 text-xs font-bold transition flex items-center gap-1" title="Log Out">
@@ -522,7 +532,6 @@ function renderGroceryList() {
               <span class="badge-${item.category} text-[10px] font-bold px-2 py-0.5 rounded-lg">${item.category}</span>
             </div>
             
-            <!-- Date & Time Added + User -->
             <div class="flex items-center gap-2 mt-1.5 text-xs text-slate-500 flex-wrap">
               <span class="font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100/60">${escapeHtml(item.quantity)}</span>
               <span>•</span>
@@ -544,7 +553,6 @@ function renderGroceryList() {
     `).join('');
   }
 
-  // Bought items tray with Checkout Date & Time
   if (boughtCountSpan) boughtCountSpan.textContent = state.boughtItems.length;
   if (clearBoughtBtn) {
     clearBoughtBtn.style.display = state.boughtItems.length > 0 ? 'inline-flex' : 'none';
@@ -564,7 +572,6 @@ function renderGroceryList() {
               <span class="line-through text-slate-400 font-medium">${escapeHtml(item.title)}</span>
               <span class="text-slate-400 text-[11px] ml-1.5">(${escapeHtml(item.quantity)})</span>
               
-              <!-- Checkout date & time -->
               <div class="text-[11px] text-slate-500 mt-0.5">
                 Bought by <strong class="text-slate-700">${escapeHtml(item.bought_by_name || 'Someone')}</strong>
                 ${item.bought_at ? `<span class="text-slate-400 ml-1.5">• 🕒 ${formatDateTime(item.bought_at)}</span>` : ''}
@@ -718,7 +725,7 @@ function renderBillsAndSplits() {
     }
   }
 
-  // Group balances breakdown table in Euros (€)
+  // Group balances breakdown table
   const balancesContainer = document.getElementById('member-balances-container');
   if (balancesContainer) {
     balancesContainer.innerHTML = state.balances.map(m => {
@@ -742,6 +749,109 @@ function renderBillsAndSplits() {
   }
 }
 
+// =========================================================
+// 5B. FRIENDS & LOGIN TRACKER RENDERER
+// =========================================================
+
+function renderFriendsDirectory() {
+  const container = document.getElementById('friends-list-container');
+  const totalFriendsEl = document.getElementById('stat-total-friends');
+  const onlineFriendsEl = document.getElementById('stat-online-friends');
+  const onlineBadgeEl = document.getElementById('tab-online-badge');
+
+  if (totalFriendsEl) totalFriendsEl.textContent = state.members.length;
+  
+  const onlineCount = state.members.filter(m => m.is_online).length;
+  if (onlineFriendsEl) onlineFriendsEl.textContent = onlineCount;
+  if (onlineBadgeEl) onlineBadgeEl.textContent = `${onlineCount} Online`;
+
+  if (!container) return;
+
+  if (state.members.length === 0) {
+    container.innerHTML = `<div class="text-center py-8 text-xs text-slate-400">No members registered yet.</div>`;
+    return;
+  }
+
+  const isAdmin = state.currentUser && state.currentUser.is_admin;
+
+  container.innerHTML = state.members.map(m => {
+    const isMe = state.currentUser && m.id === state.currentUser.id;
+    return `
+      <div class="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm hover:shadow-md transition space-y-3">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <div class="relative">
+              <span class="w-10 h-10 rounded-2xl flex items-center justify-center text-white text-sm font-bold shadow-xs" style="background-color: ${m.avatar_color || '#10b981'}">
+                ${m.name[0].toUpperCase()}
+              </span>
+              <span class="w-3.5 h-3.5 rounded-full absolute -bottom-1 -right-1 border-2 border-white ${m.is_online ? 'bg-emerald-500 pulse-live' : 'bg-slate-300'}" title="${m.is_online ? 'Online now' : 'Offline'}"></span>
+            </div>
+            <div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-bold text-slate-800 text-sm">${escapeHtml(m.name)}</span>
+                ${m.is_admin ? '<span class="bg-amber-100 text-amber-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-amber-200">👑 Group Admin</span>' : ''}
+                ${isMe ? '<span class="bg-emerald-50 text-emerald-700 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-emerald-200">You</span>' : ''}
+              </div>
+              <div class="text-xs text-slate-400 mt-0.5 font-medium">@${escapeHtml(m.username || m.name.toLowerCase().replace(/\s+/g, ''))}</div>
+            </div>
+          </div>
+
+          <!-- Presence Pill -->
+          <div>
+            ${m.is_online 
+              ? `<span class="bg-emerald-50 text-emerald-700 text-[11px] font-extrabold px-3 py-1 rounded-xl border border-emerald-200 flex items-center gap-1.5 shadow-xs"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> Online Now</span>`
+              : `<span class="bg-slate-100 text-slate-500 text-[11px] font-semibold px-2.5 py-1 rounded-xl">Offline</span>`
+            }
+          </div>
+        </div>
+
+        <!-- Login Details & Timestamps -->
+        <div class="pt-2.5 border-t border-slate-50 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-slate-500">
+          <div class="flex items-center gap-1.5">
+            <span class="text-slate-400">🕒 Last Logged In:</span>
+            <strong class="text-slate-700">${m.last_login ? formatDateTime(m.last_login) : (m.created_at ? formatDateTime(m.created_at) : 'Active')}</strong>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="text-slate-400">📅 Date Joined:</span>
+            <strong class="text-slate-700">${m.created_at ? formatDateTime(m.created_at) : 'Starter Member'}</strong>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span class="text-slate-400">🛒 Contribution:</span>
+            <span class="text-slate-600 font-semibold">${m.items_added_count || 0} items added • ${m.items_bought_count || 0} purchases</span>
+          </div>
+          ${isAdmin && !isMe ? `
+            <div class="text-right">
+              <button onclick="removeMember(${m.id}, '${escapeHtml(m.name)}')" class="text-rose-600 hover:text-rose-800 text-[11px] font-bold underline">
+                Remove User
+              </button>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function removeMember(memberId, memberName) {
+  if (!confirm(`Are you sure you want to remove ${memberName} from Palachrakk?`)) return;
+  try {
+    const res = await fetch('/api/members/remove', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ member_id: memberId })
+    });
+    if (res.ok) {
+      showToast(`${memberName} was removed.`, 'info');
+      loadState();
+    } else {
+      const d = await res.json();
+      showToast(d.error || 'Failed to remove member.', 'warning');
+    }
+  } catch (e) {
+    console.error('Error removing member:', e);
+  }
+}
+
 function renderActivityFeed() {
   const container = document.getElementById('activity-list-container');
   if (!container) return;
@@ -754,7 +864,7 @@ function renderActivityFeed() {
   container.innerHTML = state.activities.map(a => `
     <div class="flex items-start gap-3 p-3 rounded-2xl bg-white border border-slate-100 shadow-sm text-xs">
       <div class="w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs bg-slate-100 flex-shrink-0 mt-0.5">
-        ${a.action_type === 'item_added' ? '➕' : a.action_type === 'item_toggled' ? '🛒' : a.action_type === 'bill_added' ? '🧾' : a.action_type === 'settlement_recorded' ? '💶' : '📢'}
+        ${a.action_type === 'item_added' ? '➕' : a.action_type === 'item_toggled' ? '🛒' : a.action_type === 'bill_added' ? '🧾' : a.action_type === 'settlement_recorded' ? '💶' : a.action_type === 'member_login' ? '🔑' : '📢'}
       </div>
       <div class="min-w-0 flex-1">
         <div class="text-slate-800 font-medium leading-relaxed">${escapeHtml(a.message)}</div>
@@ -931,7 +1041,7 @@ async function submitSettlement(e) {
 // Navigation & Category Filtering
 function switchTab(tabId) {
   state.activeTab = tabId;
-  const tabs = ['grocery', 'bills', 'activity'];
+  const tabs = ['grocery', 'bills', 'friends', 'activity'];
   tabs.forEach(t => {
     const content = document.getElementById(`tab-content-${t}`);
     const btn = document.getElementById(`tab-btn-${t}`);
@@ -1031,9 +1141,6 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-/**
- * Format timestamp into readable localized Date & Time (e.g., "17 Nov, 6:15 PM")
- */
 function formatDateTime(dateStr) {
   if (!dateStr) return '';
   try {

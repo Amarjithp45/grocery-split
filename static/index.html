@@ -150,7 +150,7 @@
         </div>
       </div>
 
-      <!-- Navigation Tabs -->
+      <!-- Navigation Tabs (With Friends & Logins) -->
       <div class="max-w-3xl mx-auto px-4 pt-1 pb-2.5 flex items-center gap-2 overflow-x-auto">
         <button id="tab-btn-grocery" onclick="switchTab('grocery')" class="flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-900 text-white font-bold text-xs shadow-md transition">
           <span>🛒 Grocery Cart</span>
@@ -159,6 +159,11 @@
 
         <button id="tab-btn-bills" onclick="switchTab('bills')" class="flex items-center gap-2 px-4 py-2 rounded-2xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold text-xs transition">
           <span>🧾 Bills & Split (€)</span>
+        </button>
+
+        <button id="tab-btn-friends" onclick="switchTab('friends')" class="flex items-center gap-2 px-4 py-2 rounded-2xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold text-xs transition">
+          <span>👥 Friends & Logins</span>
+          <span id="tab-online-badge" class="ml-1 px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">1 Online</span>
         </button>
 
         <button id="tab-btn-activity" onclick="switchTab('activity')" class="flex items-center gap-2 px-4 py-2 rounded-2xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-bold text-xs transition">
@@ -345,13 +350,51 @@
       </div>
 
       <!-- ========================================== -->
-      <!-- TAB 3: ACTIVITY FEED                       -->
+      <!-- TAB 3: FRIENDS & ADMIN LOGIN TRACKER       -->
+      <!-- ========================================== -->
+      <div id="tab-content-friends" class="space-y-5" style="display: none;">
+        
+        <!-- Summary Stats Cards -->
+        <section class="grid grid-cols-2 gap-3 sm:gap-4">
+          <div class="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/80 shadow-sm">
+            <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Registered Friends</div>
+            <div id="stat-total-friends" class="text-2xl font-black text-slate-900 mt-1">0</div>
+            <div class="text-[11px] text-slate-500 mt-0.5">Friends with accounts</div>
+          </div>
+
+          <div class="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/80 shadow-sm">
+            <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Currently Online</div>
+            <div class="flex items-center gap-2 mt-1">
+              <span id="stat-online-friends" class="text-2xl font-black text-emerald-600">0</span>
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 pulse-live inline-block"></span>
+            </div>
+            <div class="text-[11px] text-slate-500 mt-0.5">Active in the last 5 minutes</div>
+          </div>
+        </section>
+
+        <!-- Admin View Header -->
+        <div class="flex items-center justify-between px-1">
+          <div>
+            <h2 class="text-sm font-extrabold text-slate-900">Member Directory & Logins</h2>
+            <p class="text-xs text-slate-500">Live tracker showing who has registered, who is online, and login timestamps</p>
+          </div>
+        </div>
+
+        <!-- Friends List Cards -->
+        <section id="friends-list-container" class="space-y-3">
+          <!-- Member cards render here -->
+        </section>
+
+      </div>
+
+      <!-- ========================================== -->
+      <!-- TAB 4: ACTIVITY FEED                       -->
       <!-- ========================================== -->
       <div id="tab-content-activity" class="space-y-4" style="display: none;">
         <div class="flex items-center justify-between px-1">
           <div>
             <h2 class="text-sm font-extrabold text-slate-900">Activity Log</h2>
-            <p class="text-xs text-slate-500">Live stream of changes made by your friends</p>
+            <p class="text-xs text-slate-500">Live stream of changes, logins, and purchases made by friends</p>
           </div>
         </div>
         <div id="activity-list-container" class="space-y-2.5">
