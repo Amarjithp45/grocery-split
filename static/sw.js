@@ -1,5 +1,5 @@
-// SPLITKART Service Worker - Offline Caching & Mobile System Notifications
-const CACHE_NAME = 'SPLITKART-v5';
+// SPLITKART Service Worker - Network First with Offline Fallback
+const CACHE_NAME = 'SPLITKART-v6';
 const STATIC_ASSETS = [
   '/',
   '/style.css',
@@ -34,8 +34,17 @@ self.addEventListener('fetch', (e) => {
   if (e.request.url.includes('/api/')) {
     return;
   }
+  // Network first, falling back to cache if offline
   e.respondWith(
-    caches.match(e.request).then((cached) => cached || fetch(e.request))
+    fetch(e.request)
+      .then((res) => {
+        if (res.ok) {
+          const resClone = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(e.request, resClone));
+        }
+        return res;
+      })
+      .catch(() => caches.match(e.request))
   );
 });
 
