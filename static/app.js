@@ -670,12 +670,33 @@ function renderLockedUserProfile() {
 }
 
 function renderGroupBadge() {
+  const isPersonal = !state.activeGroup || state.activeGroup.id === 0;
+  const name = isPersonal ? 'Personal List (No Group)' : state.activeGroup.name;
+  const code = isPersonal ? '' : (state.activeGroup.invite_code || '');
+
+  // Header button text
   const badgeEl = document.getElementById('header-group-name');
-  if (!badgeEl) return;
-  if (state.activeGroup && state.activeGroup.id > 0) {
-    badgeEl.textContent = state.activeGroup.name;
+  if (badgeEl) {
+    badgeEl.textContent = isPersonal ? 'Personal List' : state.activeGroup.name;
+  }
+
+  // Friends tab group card
+  const friendsName = document.getElementById('friends-tab-group-name');
+  const friendsCode = document.getElementById('friends-tab-invite-code');
+  const inviteBox = document.getElementById('friends-tab-invite-box');
+
+  if (friendsName) friendsName.textContent = name;
+  if (friendsCode) friendsCode.textContent = code || '------';
+  if (inviteBox) {
+    inviteBox.style.display = isPersonal ? 'none' : 'flex';
+  }
+}
+
+function copyActiveGroupInviteCode() {
+  if (state.activeGroup && state.activeGroup.invite_code) {
+    copyInviteCode(state.activeGroup.invite_code);
   } else {
-    badgeEl.textContent = 'Personal List';
+    openGroupModal();
   }
 }
 

@@ -293,11 +293,42 @@
       <!-- TAB 3: FRIENDS & ADMIN DIRECTORY           -->
       <!-- ========================================== -->
       <div id="tab-content-friends" class="space-y-4" style="display: none;">
+
+        <!-- Current Group & Invite Card -->
+        <section class="bg-gradient-to-br from-emerald-600 to-teal-700 text-white rounded-3xl p-4 sm:p-5 shadow-lg shadow-emerald-600/20 space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-2xl">👥</span>
+              <div>
+                <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-200">Current Group</span>
+                <h3 id="friends-tab-group-name" class="text-lg font-black leading-tight text-white">Main Group</h3>
+              </div>
+            </div>
+            <button onclick="openGroupModal()" class="px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 text-white font-extrabold text-xs transition backdrop-blur-xs flex items-center gap-1">
+              <span>⇄ Switch / Manage</span>
+            </button>
+          </div>
+
+          <div id="friends-tab-invite-box" class="bg-black/15 rounded-2xl p-3 flex items-center justify-between gap-2 border border-white/10">
+            <div>
+              <span class="block text-[10px] font-bold text-emerald-100 uppercase tracking-wider">Group Invite Code</span>
+              <span id="friends-tab-invite-code" class="text-base font-mono font-black tracking-widest text-white">------</span>
+            </div>
+            <button id="friends-tab-copy-btn" onclick="copyActiveGroupInviteCode()" class="px-3 py-1.5 rounded-xl bg-white hover:bg-emerald-50 text-emerald-900 font-extrabold text-xs transition shadow-sm flex items-center gap-1">
+              <span>📋</span>
+              <span>Copy Code</span>
+            </button>
+          </div>
+
+          <p class="text-[11px] text-emerald-100">
+            Share this 8-character code with friends so they can join this group without conflicting with others.
+          </p>
+        </section>
         
         <div class="flex items-center justify-between px-1">
           <div>
-            <h2 class="text-sm font-extrabold text-slate-900">Friends &amp; Online Status</h2>
-            <p class="text-xs text-slate-500">See who is in the group and who is currently online</p>
+            <h2 class="text-sm font-extrabold text-slate-900">Group Members &amp; Online Status</h2>
+            <p class="text-xs text-slate-500">People who are currently in this group</p>
           </div>
           <span id="stat-friends-summary" class="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-100"></span>
         </div>
@@ -539,6 +570,6 @@
   </div>
 
   <!-- Main Application Script -->
-  <script src="/app.js?v=6.1"></script>
+  <script src="/app.js?v=7.0"></script>
 </body>
 </html>
