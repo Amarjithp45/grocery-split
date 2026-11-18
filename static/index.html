@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>SPLITKART — Grocery & Bill Split</title>
+  <title>SPLITKART — Grocery &amp; Bill Split</title>
   
   <!-- PWA Meta Tags -->
   <link rel="manifest" href="/manifest.json">
@@ -56,14 +56,14 @@
       <!-- Sign In Form -->
       <form id="login-form" onsubmit="handleLogin(event)" class="space-y-3.5">
         <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1">Username</label>
-          <input id="login-username" type="text" required placeholder="Enter your username..." 
+          <label class="block text-xs font-bold text-slate-600 mb-1">Email</label>
+          <input id="login-username" type="email" required placeholder="Enter your email address..."
                  class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-sm font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 transition" />
         </div>
 
         <div>
           <label class="block text-xs font-bold text-slate-600 mb-1">Password</label>
-          <input id="login-password" type="password" required placeholder="••••••••" 
+          <input id="login-password" type="password" required placeholder="••••••••"
                  class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-sm font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 transition" />
         </div>
 
@@ -76,19 +76,19 @@
       <form id="register-form" onsubmit="handleRegister(event)" class="space-y-3.5 hidden">
         <div>
           <label class="block text-xs font-bold text-slate-600 mb-1">Your Full Name</label>
-          <input id="reg-name" type="text" required placeholder="e.g. Amar" 
+          <input id="reg-name" type="text" required placeholder="e.g. Amar"
                  class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-sm font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 transition" />
         </div>
 
         <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1">Username (for sign in)</label>
-          <input id="reg-username" type="text" required placeholder="e.g. amar" 
+          <label class="block text-xs font-bold text-slate-600 mb-1">Email (used to sign in)</label>
+          <input id="reg-username" type="email" required placeholder="e.g. you@example.com"
                  class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-sm font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 transition" />
         </div>
 
         <div>
           <label class="block text-xs font-bold text-slate-600 mb-1">Password</label>
-          <input id="reg-password" type="password" required placeholder="At least 4 characters" 
+          <input id="reg-password" type="password" required placeholder="At least 4 characters"
                  class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-2.5 text-sm font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 transition" />
         </div>
 
@@ -107,7 +107,66 @@
   </div>
 
   <!-- ========================================== -->
-  <!-- 2. MAIN APPLICATION (Simple 3 Tabs)        -->
+  <!-- 2. GROUP SELECTOR SCREEN                   -->
+  <!-- ========================================== -->
+  <div id="group-screen" class="hidden flex-col min-h-screen items-center justify-center p-4 bg-slate-50">
+    <div class="max-w-md w-full space-y-4">
+
+      <!-- Brand -->
+      <div class="text-center space-y-1 mb-2">
+        <div class="w-12 h-12 mx-auto rounded-2xl bg-emerald-600 text-white flex items-center justify-center text-2xl shadow-md shadow-emerald-600/30">🛒</div>
+        <h1 class="text-xl font-black text-slate-900 tracking-tight">SPLITKART</h1>
+        <p class="text-xs text-slate-400">Hey <span id="group-screen-username" class="font-bold text-slate-600"></span> 👋 — pick a group to get started</p>
+      </div>
+
+      <!-- Error -->
+      <div id="group-error" class="hidden p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700"></div>
+
+      <!-- Group List -->
+      <div id="group-list" class="space-y-2">
+        <p class="text-xs text-slate-400 text-center py-4">Loading groups…</p>
+      </div>
+
+      <!-- Create Group -->
+      <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs space-y-2">
+        <h3 class="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Create New Group</h3>
+        <div class="flex gap-2">
+          <input id="new-group-name" type="text" placeholder="e.g. Roommates, Family…"
+                 class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+                 onkeydown="if(event.key==='Enter'){createGroup();}" />
+          <button onclick="createGroup()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition">
+            Create
+          </button>
+        </div>
+      </div>
+
+      <!-- Join Group -->
+      <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs space-y-2">
+        <h3 class="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Join with Invite Code</h3>
+        <div class="flex gap-2">
+          <input id="join-group-code" type="text" placeholder="8-char code (e.g. ABCD1234)"
+                 maxlength="8"
+                 class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-mono font-bold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 uppercase"
+                 oninput="this.value=this.value.toUpperCase()"
+                 onkeydown="if(event.key==='Enter'){joinGroup();}" />
+          <button onclick="joinGroup()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs transition">
+            Join
+          </button>
+        </div>
+      </div>
+
+      <!-- Logout -->
+      <div class="text-center pt-1">
+        <button onclick="logout()" class="text-xs text-slate-400 hover:text-rose-600 font-semibold">
+          Sign out
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- 3. MAIN APPLICATION (Simple 3 Tabs)        -->
   <!-- ========================================== -->
   <div id="app-screen" class="hidden flex-col min-h-screen">
 
@@ -123,6 +182,8 @@
               <span id="live-indicator" class="w-2 h-2 rounded-full bg-emerald-500 pulse-live"></span>
               <span class="text-[10px] text-slate-400 font-semibold">Live Sync</span>
             </div>
+            <!-- Group Badge -->
+            <div id="group-header-badge" class="text-[10px] text-slate-500 mt-0.5"></div>
           </div>
         </div>
 
@@ -176,7 +237,7 @@
     <main class="max-w-2xl w-full mx-auto px-4 py-4 flex-1">
 
       <!-- ========================================== -->
-      <!-- TAB 1: GROCERY CHECKLIST (Clean & Focused) -->
+      <!-- TAB 1: GROCERY CHECKLIST                   -->
       <!-- ========================================== -->
       <div id="tab-content-grocery" class="space-y-4">
         
@@ -184,15 +245,15 @@
         <section class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs">
           <form onsubmit="addItem(event)" class="space-y-2.5">
             <div class="flex gap-2">
-              <input id="item-title-input" 
-                     type="text" 
+              <input id="item-title-input"
+                     type="text"
                      required
-                     placeholder="Item name (e.g., Milk, Rice, Eggs)..." 
+                     placeholder="Item name (e.g., Milk, Rice, Eggs)..."
                      class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-500" />
               
-              <input id="item-qty-input" 
-                     type="text" 
-                     placeholder="Qty (e.g. 2)" 
+              <input id="item-qty-input"
+                     type="text"
+                     placeholder="Qty (e.g. 2)"
                      class="w-24 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-500" />
             </div>
 
@@ -235,8 +296,8 @@
               <h3 class="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Purchased Items</h3>
               <span id="bought-count-badge" class="px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 text-[10px] font-bold">0</span>
             </div>
-            <button id="clear-bought-btn" 
-                    onclick="clearBoughtItems()" 
+            <button id="clear-bought-btn"
+                    onclick="clearBoughtItems()"
                     class="text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 px-3 py-1.5 rounded-xl transition"
                     style="display: none;">
               🧹 Clear All
@@ -291,7 +352,7 @@
         
         <div class="flex items-center justify-between px-1">
           <div>
-            <h2 class="text-sm font-extrabold text-slate-900">Friends & Online Status</h2>
+            <h2 class="text-sm font-extrabold text-slate-900">Friends &amp; Online Status</h2>
             <p class="text-xs text-slate-500">See who is in the group and who is currently online</p>
           </div>
           <span id="stat-friends-summary" class="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-100"></span>
@@ -358,20 +419,20 @@
       <form onsubmit="submitBill(event)" class="space-y-3">
         <div>
           <label class="block text-xs font-bold text-slate-600 mb-1">Store Name / Trip</label>
-          <input id="bill-store-input" type="text" required placeholder="e.g. Lidl, Aldi, Carrefour, SPAR" 
+          <input id="bill-store-input" type="text" required placeholder="e.g. Lidl, Aldi, Carrefour, SPAR"
                  class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-500" />
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-bold text-slate-600 mb-1">Total Amount (€)</label>
-            <input id="bill-amount-input" type="number" step="0.01" min="0.01" required placeholder="0.00" 
+            <input id="bill-amount-input" type="number" step="0.01" min="0.01" required placeholder="0.00"
                    class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-sm font-bold text-slate-800 focus:outline-none focus:border-emerald-500" />
           </div>
 
           <div>
             <label class="block text-xs font-bold text-slate-600 mb-1">Date</label>
-            <input id="bill-date-input" type="date" required 
+            <input id="bill-date-input" type="date" required
                    class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:border-emerald-500" />
           </div>
         </div>
@@ -388,7 +449,7 @@
 
         <div class="pt-2 flex items-center justify-end gap-2">
           <button type="button" onclick="closeModal('add-bill-modal')" class="px-3.5 py-2 rounded-xl text-slate-500 font-semibold text-xs hover:bg-slate-100">Cancel</button>
-          <button type="submit" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition">Save & Split (€)</button>
+          <button type="submit" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition">Save &amp; Split (€)</button>
         </div>
       </form>
     </div>
@@ -414,7 +475,7 @@
 
         <div>
           <label class="block text-xs font-bold text-slate-600 mb-1">Amount Paid (€)</label>
-          <input id="settle-amount-input" type="number" step="0.01" min="0.01" required 
+          <input id="settle-amount-input" type="number" step="0.01" min="0.01" required
                  class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-sm font-bold text-slate-800 focus:outline-none focus:border-emerald-500" />
         </div>
 

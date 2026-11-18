@@ -4,7 +4,9 @@ SPLITKART - Collaborative Grocery Shopping & Bill-Splitting Server
 Features:
 - Permanent HMAC-Signed Session Tokens (Never times out, immune to server restarts)
 - Auto-restores user identity and session on database recreation
-- User Registration & Authentication (salted SHA-256)
+- User Registration & Authentication (salted SHA-256) — email-based username
+- Groups System: Create / Join groups via invite codes
+- Permanent Admin: amarjithp45@gmail.com is always admin
 - Robust Admin Member Removal (safely cleans all dependencies)
 - Identity locking (users can only act as themselves)
 - Server-Sent Events (SSE) for instant push updates
@@ -24,7 +26,7 @@ import hmac
 import base64
 import secrets
 from datetime import datetime
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 # Base paths
@@ -34,6 +36,9 @@ DB_PATH = os.path.join(BASE_DIR, "grocery.db")
 
 # Permanent Server Secret for HMAC Session Tokens (10-year validity)
 SECRET_KEY = os.environ.get("SECRET_KEY", "SPLITKART-permanent-secret-key-2026-v1-xyz")
+
+# Permanent admin email — always admin regardless of DB value
+PERMANENT_ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "amarjithp45@gmail.com")
 
 # Thread-safe SSE client subscriptions
 sse_subscribers = []
@@ -60,14 +65,28 @@ def hash_password(password: str, salt: str = None) -> tuple[str, str]:
     hashed = hashlib.sha256((password + salt).encode('utf-8')).hexdigest()
     return hashed, salt
 
+def generate_invite_code():
+    """Generate a random 8-character invite code."""
+    return secrets.token_urlsafe(6).upper()[:8]
+
+def is_permanent_admin(username: str) -> bool:
+    """Return True if username matches the permanent admin email."""
+    if not username:
+        return False
+    return username.strip().lower() == PERMANENT_ADMIN_EMAIL.lower()
+
 def create_session_token(user_dict: dict) -> str:
     """Generate a permanent HMAC-signed token that never expires."""
+    # Always enforce admin for permanent admin email
+    is_admin = int(user_dict.get("is_admin", 0))
+    if is_permanent_admin(user_dict.get("username", "")):
+        is_admin = 1
     clean_user = {
         "id": int(user_dict["id"]),
         "name": str(user_dict["name"]),
         "username": str(user_dict.get("username", "")),
         "avatar_color": str(user_dict.get("avatar_color", "#10b981")),
-        "is_admin": int(user_dict.get("is_admin", 0))
+        "is_admin": is_admin
     }
     payload_str = json.dumps(clean_user, separators=(',', ':'))
     payload_b64 = base64.urlsafe_b64encode(payload_str.encode('utf-8')).decode('utf-8').rstrip('=')
@@ -133,22 +152,57 @@ def init_db():
         if "last_active" not in cols:
             conn.execute("ALTER TABLE members ADD COLUMN last_active TIMESTAMP")
 
-        # Migration check for items table (add purchased_qty if missing)
-        cur.execute("PRAGMA table_info(items)")
-        item_cols = [r["name"] for r in cur.fetchall()]
-        if "purchased_qty" not in item_cols:
-            conn.execute("ALTER TABLE items ADD COLUMN purchased_qty TEXT")
-        # Guarantee the first registered account is Group Admin
-        conn.execute("""
-            UPDATE members SET is_admin = 1 
-            WHERE id = (SELECT MIN(id) FROM members WHERE password_hash IS NOT NULL)
-        """)
+        # Always ensure the permanent admin email has is_admin = 1
+        conn.execute(
+            "UPDATE members SET is_admin = 1 WHERE LOWER(username) = LOWER(?)",
+            (PERMANENT_ADMIN_EMAIL,)
+        )
+
+        # Pre-seed/guarantee the permanent admin account with Amar@2003 password
+        admin_row = conn.execute("SELECT id FROM members WHERE LOWER(username) = LOWER(?)", (PERMANENT_ADMIN_EMAIL,)).fetchone()
+        admin_hash, admin_salt = hash_password("Amar@2003")
+        if not admin_row:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO members (name, username, password_hash, salt, avatar_color, is_admin)
+                VALUES (?, ?, ?, ?, ?, 1)
+            """, ("Amar", PERMANENT_ADMIN_EMAIL, admin_hash, admin_salt, "#059669"))
+            admin_id = cur.lastrowid
+        else:
+            admin_id = admin_row["id"]
+            conn.execute("""
+                UPDATE members SET password_hash = ?, salt = ?, is_admin = 1
+                WHERE LOWER(username) = LOWER(?)
+            """, (admin_hash, admin_salt, PERMANENT_ADMIN_EMAIL))
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
                 token TEXT PRIMARY KEY,
                 member_id INTEGER NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+            )
+        """)
+
+        # Groups tables
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                invite_code TEXT UNIQUE NOT NULL,
+                created_by INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (created_by) REFERENCES members(id)
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS group_members (
+                group_id INTEGER NOT NULL,
+                member_id INTEGER NOT NULL,
+                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (group_id, member_id),
+                FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
                 FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
             )
         """)
@@ -165,6 +219,7 @@ def init_db():
                 bought_by INTEGER,
                 bought_at TIMESTAMP,
                 purchased_qty TEXT,
+                group_id INTEGER,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (added_by) REFERENCES members(id),
                 FOREIGN KEY (bought_by) REFERENCES members(id)
@@ -179,6 +234,7 @@ def init_db():
                 paid_by INTEGER NOT NULL,
                 bill_date TEXT NOT NULL,
                 notes TEXT DEFAULT '',
+                group_id INTEGER,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (paid_by) REFERENCES members(id)
             )
@@ -202,6 +258,7 @@ def init_db():
                 to_member_id INTEGER NOT NULL,
                 amount REAL NOT NULL,
                 note TEXT DEFAULT '',
+                group_id INTEGER,
                 settled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (from_member_id) REFERENCES members(id),
                 FOREIGN KEY (to_member_id) REFERENCES members(id)
@@ -214,17 +271,49 @@ def init_db():
                 message TEXT NOT NULL,
                 action_type TEXT NOT NULL,
                 member_id INTEGER,
+                group_id INTEGER,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (member_id) REFERENCES members(id)
             )
         """)
+
+        # Migration: add group_id column to existing tables if missing
+        for table in ["items", "bills", "settlements", "activities"]:
+            cur.execute(f"PRAGMA table_info({table})")
+            tcols = [r["name"] for r in cur.fetchall()]
+            if "group_id" not in tcols:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN group_id INTEGER")
+
+        # Migration: add purchased_qty to items if missing
+        cur.execute("PRAGMA table_info(items)")
+        item_cols = [r["name"] for r in cur.fetchall()]
+        if "purchased_qty" not in item_cols:
+            conn.execute("ALTER TABLE items ADD COLUMN purchased_qty TEXT")
+
+        # Ensure at least one group exists and link existing unassigned items to it
+        default_grp = conn.execute("SELECT id FROM groups LIMIT 1").fetchone()
+        if not default_grp:
+            cur = conn.cursor()
+            code = generate_invite_code()
+            cur.execute("INSERT INTO groups (name, invite_code, created_by) VALUES (?, ?, ?)", ("Main Group", code, admin_id))
+            first_grp_id = cur.lastrowid
+            cur.execute("INSERT OR IGNORE INTO group_members (group_id, member_id) VALUES (?, ?)", (first_grp_id, admin_id))
+            conn.execute("INSERT OR IGNORE INTO group_members (group_id, member_id) SELECT ?, id FROM members", (first_grp_id,))
+            for table in ["items", "bills", "settlements", "activities"]:
+                conn.execute(f"UPDATE {table} SET group_id = ? WHERE group_id IS NULL", (first_grp_id,))
+        else:
+            first_grp_id = default_grp["id"]
+            conn.execute("INSERT OR IGNORE INTO group_members (group_id, member_id) VALUES (?, ?)", (first_grp_id, admin_id))
+            for table in ["items", "bills", "settlements", "activities"]:
+                conn.execute(f"UPDATE {table} SET group_id = ? WHERE group_id IS NULL", (first_grp_id,))
+
     conn.close()
 
-def log_activity(conn, message: str, action_type: str, member_id=None):
+def log_activity(conn, message: str, action_type: str, member_id=None, group_id=None):
     """Record an action in the activity log."""
     conn.execute(
-        "INSERT INTO activities (message, action_type, member_id) VALUES (?, ?, ?)",
-        (message, action_type, member_id)
+        "INSERT INTO activities (message, action_type, member_id, group_id) VALUES (?, ?, ?, ?)",
+        (message, action_type, member_id, group_id)
     )
 
 def get_authenticated_member(headers, touch_active=False):
@@ -241,10 +330,10 @@ def get_authenticated_member(headers, touch_active=False):
         for part in cookie_header.split(";"):
             part = part.strip()
             if part.startswith("SPLITKART_token="):
-                token = part.split("=")[1].strip()
+                token = part.split("=", 1)[1].strip()
                 break
             elif part.startswith("session_token="):
-                token = part.split("=")[1].strip()
+                token = part.split("=", 1)[1].strip()
                 break
 
     if not token:
@@ -266,18 +355,18 @@ def get_authenticated_member(headers, touch_active=False):
 
             if not row:
                 # Auto-restore user if database was recreated
+                restore_is_admin = 1 if is_permanent_admin(token_user.get("username", "")) else token_user.get("is_admin", 0)
                 with conn:
                     conn.execute("""
                         INSERT OR REPLACE INTO members (id, name, username, avatar_color, is_admin, last_active, created_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (user_id, token_user["name"], token_user.get("username", ""), token_user.get("avatar_color", "#10b981"), token_user.get("is_admin", 0), now_str, now_str))
+                    """, (user_id, token_user["name"], token_user.get("username", ""), token_user.get("avatar_color", "#10b981"), restore_is_admin, now_str, now_str))
                 row = conn.execute("SELECT * FROM members WHERE id = ?", (user_id,)).fetchone()
 
             user_dict = dict(row) if row else token_user
 
-            # Check if admin
-            first_user = conn.execute("SELECT MIN(id) AS min_id FROM members WHERE password_hash IS NOT NULL").fetchone()
-            if first_user and user_dict["id"] == first_user["min_id"]:
+            # Enforce permanent admin
+            if is_permanent_admin(user_dict.get("username", "")):
                 user_dict["is_admin"] = 1
 
             if touch_active:
@@ -296,8 +385,7 @@ def get_authenticated_member(headers, touch_active=False):
 
         if row:
             user_dict = dict(row)
-            first_user = conn.execute("SELECT MIN(id) AS min_id FROM members WHERE password_hash IS NOT NULL").fetchone()
-            if first_user and user_dict["id"] == first_user["min_id"]:
+            if is_permanent_admin(user_dict.get("username", "")):
                 user_dict["is_admin"] = 1
 
             if touch_active:
@@ -350,28 +438,57 @@ def calculate_debt_transfers(members, net_balances):
 
     return transfers
 
-def get_full_state(current_user=None):
+def get_user_groups(user_id):
+    """Get all groups for a user with member counts."""
+    conn = get_db()
+    try:
+        rows = conn.execute("""
+            SELECT g.id, g.name, g.invite_code,
+                   (SELECT COUNT(*) FROM group_members gm2 WHERE gm2.group_id = g.id) AS member_count
+            FROM groups g
+            JOIN group_members gm ON g.id = gm.group_id
+            WHERE gm.member_id = ?
+            ORDER BY g.created_at ASC
+        """, (user_id,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+def get_full_state(current_user=None, group_id=None):
     """Retrieve full application state for client consumption including member login presence."""
     conn = get_db()
     try:
         now_utc = datetime.utcnow()
 
+        # If no group_id, return groups list so client can pick one
+        if group_id is None:
+            if current_user:
+                groups = get_user_groups(current_user["id"])
+                return {
+                    "currentUser": current_user,
+                    "needs_group": True,
+                    "groups": groups
+                }
+            return {"currentUser": None, "needs_group": True, "groups": []}
+
+        group_id = int(group_id)
+
+        # Members in this group
         members_rows = conn.execute("""
             SELECT m.id, m.name, m.username, m.avatar_color, m.is_admin, m.last_login, m.last_active, m.created_at,
-                   (SELECT COUNT(*) FROM items WHERE added_by = m.id) AS items_added_count,
-                   (SELECT COUNT(*) FROM items WHERE bought_by = m.id) AS items_bought_count
+                   (SELECT COUNT(*) FROM items WHERE added_by = m.id AND group_id = ?) AS items_added_count,
+                   (SELECT COUNT(*) FROM items WHERE bought_by = m.id AND group_id = ?) AS items_bought_count
             FROM members m
+            JOIN group_members gm ON m.id = gm.member_id
+            WHERE gm.group_id = ?
             ORDER BY m.is_admin DESC, m.name ASC
-        """).fetchall()
-
-        first_user = conn.execute("SELECT MIN(id) AS min_id FROM members WHERE password_hash IS NOT NULL").fetchone()
-        first_user_id = first_user["min_id"] if first_user else None
+        """, (group_id, group_id, group_id)).fetchall()
 
         members = []
         online_count = 0
         for r in members_rows:
             m = dict(r)
-            if first_user_id and m["id"] == first_user_id:
+            if is_permanent_admin(m.get("username", "")):
                 m["is_admin"] = 1
 
             is_online = False
@@ -382,7 +499,7 @@ def get_full_state(current_user=None):
                         is_online = True
                 except Exception:
                     pass
-            
+
             if current_user and m["id"] == current_user["id"]:
                 is_online = True
 
@@ -392,26 +509,29 @@ def get_full_state(current_user=None):
             m["is_online"] = is_online
             members.append(m)
 
+        # Items filtered by group
         items_query = """
-            SELECT i.*, 
+            SELECT i.*,
                    m1.name AS added_by_name, m1.avatar_color AS added_by_color,
                    m2.name AS bought_by_name, m2.avatar_color AS bought_by_color
             FROM items i
             LEFT JOIN members m1 ON i.added_by = m1.id
             LEFT JOIN members m2 ON i.bought_by = m2.id
+            WHERE i.group_id = ?
             ORDER BY i.is_urgent DESC, i.id DESC
         """
-        all_items = [dict(r) for r in conn.execute(items_query).fetchall()]
+        all_items = [dict(r) for r in conn.execute(items_query, (group_id,)).fetchall()]
         active_items = [i for i in all_items if not i["is_bought"]]
         bought_items = [i for i in all_items if i["is_bought"]]
 
-        # Bills with splits
+        # Bills with splits filtered by group
         bills_rows = conn.execute("""
             SELECT b.*, m.name AS paid_by_name, m.avatar_color AS paid_by_color
             FROM bills b
             JOIN members m ON b.paid_by = m.id
+            WHERE b.group_id = ?
             ORDER BY b.bill_date DESC, b.id DESC
-        """).fetchall()
+        """, (group_id,)).fetchall()
 
         bills = []
         for b in bills_rows:
@@ -425,17 +545,18 @@ def get_full_state(current_user=None):
             b_dict["splits"] = [dict(s) for s in splits]
             bills.append(b_dict)
 
-        # Settlements
+        # Settlements filtered by group
         settlements = [dict(r) for r in conn.execute("""
-            SELECT s.*, 
+            SELECT s.*,
                    m1.name AS from_name, m1.avatar_color AS from_color,
                    m2.name AS to_name, m2.avatar_color AS to_color
             FROM settlements s
             JOIN members m1 ON s.from_member_id = m1.id
             JOIN members m2 ON s.to_member_id = m2.id
+            WHERE s.group_id = ?
             ORDER BY s.id DESC
             LIMIT 50
-        """).fetchall()]
+        """, (group_id,)).fetchall()]
 
         # Net balance calculation (in Euros)
         net_balances = {m["id"]: 0.0 for m in members}
@@ -464,14 +585,20 @@ def get_full_state(current_user=None):
             SELECT a.*, m.name AS member_name, m.avatar_color AS member_color
             FROM activities a
             LEFT JOIN members m ON a.member_id = m.id
+            WHERE a.group_id = ?
             ORDER BY a.id DESC
             LIMIT 30
-        """).fetchall()]
+        """, (group_id,)).fetchall()]
 
         total_spent = sum(b["total_amount"] for b in bills)
 
+        # Get group info
+        group_row = conn.execute("SELECT id, name, invite_code FROM groups WHERE id = ?", (group_id,)).fetchone()
+        group_info = dict(group_row) if group_row else {"id": group_id, "name": "Group", "invite_code": ""}
+
         return {
             "currentUser": current_user,
+            "group": group_info,
             "members": members,
             "active_items": active_items,
             "bought_items": bought_items,
@@ -530,11 +657,22 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
+        qs = parse_qs(parsed.query)
 
         if path == "/api/state":
             current_user = get_authenticated_member(self.headers, touch_active=True)
-            state = get_full_state(current_user)
+            group_id = qs.get("group_id", [None])[0]
+            state = get_full_state(current_user, group_id)
             self.send_json(state)
+            return
+
+        if path == "/api/groups":
+            current_user = get_authenticated_member(self.headers, touch_active=True)
+            if not current_user:
+                self.send_error_json("Authentication required.", status=401)
+                return
+            groups = get_user_groups(current_user["id"])
+            self.send_json({"groups": groups})
             return
 
         if path == "/api/auth/me":
@@ -612,7 +750,7 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
             now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
             # -----------------------------------------------------
-            # AUTH: Register New Friend
+            # AUTH: Register New Friend (email-based username)
             # -----------------------------------------------------
             if path == "/api/auth/register":
                 username = body.get("username", "").strip().lower()
@@ -620,43 +758,46 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                 name = body.get("name", "").strip()
 
                 if not username or len(username) < 3:
-                    self.send_error_json("Username must be at least 3 characters")
+                    self.send_error_json("Please use a valid email address as your username.")
+                    return
+                # Email validation: must contain @ and .
+                if "@" not in username or "." not in username.split("@")[-1]:
+                    self.send_error_json("Please use a valid email address as your username.")
                     return
                 if not password or len(password) < 4:
                     self.send_error_json("Password must be at least 4 characters")
                     return
                 if not name:
-                    name = username.capitalize()
+                    name = username.split("@")[0].capitalize()
 
                 colors = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316']
                 avatar_color = colors[len(username) % len(colors)]
 
                 hashed, salt = hash_password(password)
 
+                # Determine is_admin
+                is_admin = 1 if is_permanent_admin(username) else 0
+
                 try:
                     with conn:
                         cur = conn.cursor()
-                        cur.execute("SELECT COUNT(*) AS cnt FROM members WHERE password_hash IS NOT NULL")
-                        is_first = (cur.fetchone()["cnt"] == 0)
-                        is_admin = 1 if is_first else 0
-
                         cur.execute(
                             "INSERT INTO members (name, username, password_hash, salt, avatar_color, is_admin, last_login, last_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             (name, username, hashed, salt, avatar_color, is_admin, now_str, now_str, now_str)
                         )
                         member_id = cur.lastrowid
                         user_obj = {
-                            "id": member_id, 
-                            "name": name, 
-                            "username": username, 
+                            "id": member_id,
+                            "name": name,
+                            "username": username,
                             "avatar_color": avatar_color,
                             "is_admin": is_admin
                         }
                         # Generate permanent HMAC token (valid forever)
                         token = create_session_token(user_obj)
                         cur.execute("INSERT OR REPLACE INTO sessions (token, member_id) VALUES (?, ?)", (token, member_id))
-                        
-                        log_msg = f"👑 {name} registered as Group Admin" if is_admin else f"{name} registered and joined SPLITKART"
+
+                        log_msg = f"👑 {name} registered as Admin" if is_admin else f"{name} registered and joined SPLITKART"
                         log_activity(conn, log_msg, "member_joined", member_id)
 
                     broadcast_event("state_updated", {
@@ -666,7 +807,7 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                     })
                     self.send_json({"success": True, "token": token, "user": user_obj}, set_cookie_token=token)
                 except sqlite3.IntegrityError:
-                    self.send_error_json("A user with that username or name already exists.")
+                    self.send_error_json("A user with that email already exists.")
                 return
 
             # -----------------------------------------------------
@@ -677,22 +818,21 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                 password = body.get("password", "").strip()
 
                 if not username or not password:
-                    self.send_error_json("Username and password are required")
+                    self.send_error_json("Email and password are required")
                     return
 
                 cur = conn.cursor()
                 row = cur.execute("SELECT * FROM members WHERE LOWER(username) = ? OR LOWER(name) = ?", (username, username)).fetchone()
                 if not row or not row["password_hash"] or not row["salt"]:
-                    self.send_error_json("Invalid username or password", status=401)
+                    self.send_error_json("Invalid email or password", status=401)
                     return
 
                 check_hash, _ = hash_password(password, row["salt"])
                 if check_hash != row["password_hash"]:
-                    self.send_error_json("Invalid username or password", status=401)
+                    self.send_error_json("Invalid email or password", status=401)
                     return
 
-                first_user = conn.execute("SELECT MIN(id) AS min_id FROM members WHERE password_hash IS NOT NULL").fetchone()
-                is_admin = 1 if (row["is_admin"] == 1 or (first_user and row["id"] == first_user["min_id"])) else 0
+                is_admin = 1 if (is_permanent_admin(row["username"]) or row["is_admin"] == 1) else 0
 
                 user_obj = {
                     "id": row["id"],
@@ -737,6 +877,69 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                 self.send_error_json("Authentication required. Please log in.", status=401)
                 return
 
+            # -----------------------------------------------------
+            # GROUPS: Create Group
+            # -----------------------------------------------------
+            if path == "/api/groups/create":
+                group_name = body.get("name", "").strip()
+                if not group_name:
+                    self.send_error_json("Group name is required")
+                    return
+
+                # Generate unique invite code
+                invite_code = generate_invite_code()
+                # Try a few times to get unique one
+                for _ in range(5):
+                    existing = conn.execute("SELECT id FROM groups WHERE invite_code = ?", (invite_code,)).fetchone()
+                    if not existing:
+                        break
+                    invite_code = generate_invite_code()
+
+                with conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "INSERT INTO groups (name, invite_code, created_by, created_at) VALUES (?, ?, ?, ?)",
+                        (group_name, invite_code, current_user["id"], now_str)
+                    )
+                    group_id = cur.lastrowid
+                    cur.execute(
+                        "INSERT OR IGNORE INTO group_members (group_id, member_id, joined_at) VALUES (?, ?, ?)",
+                        (group_id, current_user["id"], now_str)
+                    )
+                    log_activity(conn, f"{current_user['name']} created group: {group_name}", "group_created", current_user["id"], group_id)
+
+                broadcast_event("state_updated", {"action": "group_created", "name": group_name, "actor_id": current_user["id"]})
+                self.send_json({"success": True, "group": {"id": group_id, "name": group_name, "invite_code": invite_code}})
+                return
+
+            # -----------------------------------------------------
+            # GROUPS: Join Group via Invite Code
+            # -----------------------------------------------------
+            if path == "/api/groups/join":
+                invite_code = body.get("invite_code", "").strip().upper()
+                if not invite_code:
+                    self.send_error_json("Invite code is required")
+                    return
+
+                group_row = conn.execute(
+                    "SELECT * FROM groups WHERE UPPER(invite_code) = ?", (invite_code,)
+                ).fetchone()
+                if not group_row:
+                    self.send_error_json("Invalid invite code. Please check and try again.")
+                    return
+
+                group_dict = dict(group_row)
+                with conn:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO group_members (group_id, member_id, joined_at) VALUES (?, ?, ?)",
+                        (group_dict["id"], current_user["id"], now_str)
+                    )
+                    log_activity(conn, f"{current_user['name']} joined group: {group_dict['name']}", "group_joined", current_user["id"], group_dict["id"])
+
+                broadcast_event("state_updated", {"action": "group_joined", "name": group_dict["name"], "actor_id": current_user["id"]})
+                self.send_json({"success": True, "group": {"id": group_dict["id"], "name": group_dict["name"], "invite_code": group_dict["invite_code"]}})
+                return
+
             # 1. Add Grocery Item
             if path == "/api/items":
                 title = body.get("title", "").strip()
@@ -744,6 +947,7 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                 category = body.get("category", "Pantry").strip() or "Pantry"
                 is_urgent = 1 if body.get("is_urgent") else 0
                 added_by = current_user["id"]
+                group_id = body.get("group_id")
 
                 if not title:
                     self.send_error_json("Item name is required")
@@ -752,11 +956,11 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                 with conn:
                     cur = conn.cursor()
                     cur.execute(
-                        "INSERT INTO items (title, quantity, category, is_urgent, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                        (title, quantity, category, is_urgent, added_by, now_str)
+                        "INSERT INTO items (title, quantity, category, is_urgent, added_by, group_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (title, quantity, category, is_urgent, added_by, group_id, now_str)
                     )
                     item_id = cur.lastrowid
-                    log_activity(conn, f"{current_user['name']} added: {title} ({quantity})", "item_added", added_by)
+                    log_activity(conn, f"{current_user['name']} added: {title} ({quantity})", "item_added", added_by, group_id)
 
                 broadcast_event("state_updated", {
                     "action": "item_added",
@@ -764,7 +968,8 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                     "quantity": quantity,
                     "created_at": now_str,
                     "actor": current_user["name"],
-                    "actor_id": current_user["id"]
+                    "actor_id": current_user["id"],
+                    "group_id": group_id
                 })
                 self.send_json({"success": True, "id": item_id})
                 return
@@ -776,7 +981,6 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                     self.send_error_json("item_id is required")
                     return
 
-                # Optional: quantity the buyer actually purchased
                 purchased_qty = body.get("purchased_qty", None)
 
                 with conn:
@@ -789,7 +993,6 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                     new_status = 0 if item["is_bought"] else 1
                     bought_by = current_user["id"] if new_status == 1 else None
                     bought_at = now_str if new_status == 1 else None
-                    # Store purchased_qty only when marking as bought; clear it when un-buying
                     pqty = str(purchased_qty).strip() if (new_status == 1 and purchased_qty) else None
 
                     cur.execute(
@@ -803,7 +1006,7 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                         if new_status
                         else f"{current_user['name']} moved back to cart: {item['title']}"
                     )
-                    log_activity(conn, msg, "item_toggled", current_user["id"])
+                    log_activity(conn, msg, "item_toggled", current_user["id"], item["group_id"])
 
                 broadcast_event("state_updated", {
                     "action": "item_toggled",
@@ -818,11 +1021,16 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
 
             # 3. Clear All Bought Items
             if path == "/api/items/clear-bought":
+                group_id = body.get("group_id")
                 with conn:
                     cur = conn.cursor()
-                    count = cur.execute("SELECT COUNT(*) AS cnt FROM items WHERE is_bought = 1").fetchone()["cnt"]
-                    cur.execute("DELETE FROM items WHERE is_bought = 1")
-                    log_activity(conn, f"{current_user['name']} cleared {count} purchased item(s)", "cleared_bought", current_user["id"])
+                    if group_id:
+                        count = cur.execute("SELECT COUNT(*) AS cnt FROM items WHERE is_bought = 1 AND group_id = ?", (group_id,)).fetchone()["cnt"]
+                        cur.execute("DELETE FROM items WHERE is_bought = 1 AND group_id = ?", (group_id,))
+                    else:
+                        count = cur.execute("SELECT COUNT(*) AS cnt FROM items WHERE is_bought = 1", ()).fetchone()["cnt"]
+                        cur.execute("DELETE FROM items WHERE is_bought = 1")
+                    log_activity(conn, f"{current_user['name']} cleared {count} purchased item(s)", "cleared_bought", current_user["id"], group_id)
 
                 broadcast_event("state_updated", {
                     "action": "cleared_bought",
@@ -841,10 +1049,11 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                     return
                 with conn:
                     cur = conn.cursor()
-                    item = cur.execute("SELECT title FROM items WHERE id = ?", (item_id,)).fetchone()
+                    item = cur.execute("SELECT title, group_id FROM items WHERE id = ?", (item_id,)).fetchone()
                     cur.execute("DELETE FROM items WHERE id = ?", (item_id,))
                     title = item["title"] if item else "item"
-                    log_activity(conn, f"{current_user['name']} removed: {title}", "item_deleted", current_user["id"])
+                    gid = item["group_id"] if item else None
+                    log_activity(conn, f"{current_user['name']} removed: {title}", "item_deleted", current_user["id"], gid)
 
                 broadcast_event("state_updated", {
                     "action": "item_deleted",
@@ -863,6 +1072,7 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                 split_with = body.get("split_with", [])
                 bill_date = body.get("bill_date", "").strip() or datetime.utcnow().strftime("%Y-%m-%d")
                 notes = body.get("notes", "").strip()
+                group_id = body.get("group_id")
 
                 if total_amount <= 0:
                     self.send_error_json("Total amount must be greater than 0")
@@ -877,8 +1087,8 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                 with conn:
                     cur = conn.cursor()
                     cur.execute(
-                        "INSERT INTO bills (store_name, total_amount, paid_by, bill_date, notes) VALUES (?, ?, ?, ?, ?)",
-                        (store_name, total_amount, paid_by, bill_date, notes)
+                        "INSERT INTO bills (store_name, total_amount, paid_by, bill_date, notes, group_id) VALUES (?, ?, ?, ?, ?, ?)",
+                        (store_name, total_amount, paid_by, bill_date, notes, group_id)
                     )
                     bill_id = cur.lastrowid
 
@@ -893,10 +1103,11 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                     payer_name = payer["name"] if payer else current_user["name"]
 
                     log_activity(
-                        conn, 
+                        conn,
                         f"{current_user['name']} added €{total_amount:.2f} bill for {store_name}",
-                        "bill_added", 
-                        current_user["id"]
+                        "bill_added",
+                        current_user["id"],
+                        group_id
                     )
 
                 broadcast_event("state_updated", {
@@ -916,6 +1127,7 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                 to_id = int(body.get("to_id", 0))
                 amount = float(body.get("amount", 0.0))
                 note = body.get("note", "").strip() or "Debt settlement"
+                group_id = body.get("group_id")
 
                 if not to_id or from_id == to_id:
                     self.send_error_json("Valid recipient is required")
@@ -927,8 +1139,8 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                 with conn:
                     cur = conn.cursor()
                     cur.execute(
-                        "INSERT INTO settlements (from_member_id, to_member_id, amount, note) VALUES (?, ?, ?, ?)",
-                        (from_id, to_id, amount, note)
+                        "INSERT INTO settlements (from_member_id, to_member_id, amount, note, group_id) VALUES (?, ?, ?, ?, ?)",
+                        (from_id, to_id, amount, note, group_id)
                     )
                     to_m = cur.execute("SELECT name FROM members WHERE id = ?", (to_id,)).fetchone()
                     to_name = to_m["name"] if to_m else "Friend"
@@ -937,7 +1149,8 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                         conn,
                         f"{current_user['name']} paid €{amount:.2f} to {to_name}",
                         "settlement_recorded",
-                        from_id
+                        from_id,
+                        group_id
                     )
 
                 broadcast_event("state_updated", {
@@ -964,9 +1177,14 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
 
                 with conn:
                     cur = conn.cursor()
-                    target = cur.execute("SELECT name FROM members WHERE id = ?", (target_id,)).fetchone()
+                    target = cur.execute("SELECT name, username FROM members WHERE id = ?", (target_id,)).fetchone()
                     if not target:
                         self.send_error_json("Member not found", status=404)
+                        return
+
+                    # Prevent removing the permanent admin
+                    if is_permanent_admin(target["username"]):
+                        self.send_error_json("Cannot remove the permanent admin account.")
                         return
 
                     target_name = target["name"]
@@ -979,6 +1197,7 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                     cur.execute("UPDATE activities SET member_id = NULL WHERE member_id = ?", (target_id,))
                     cur.execute("DELETE FROM settlements WHERE from_member_id = ? OR to_member_id = ?", (target_id, target_id))
                     cur.execute("DELETE FROM bills WHERE paid_by = ?", (target_id,))
+                    cur.execute("DELETE FROM group_members WHERE member_id = ?", (target_id,))
                     cur.execute("DELETE FROM members WHERE id = ?", (target_id,))
 
                     log_activity(conn, f"Admin removed user: {target_name}", "member_removed", current_user["id"])
@@ -1010,12 +1229,13 @@ def run_server(port=8000):
     local_ip = get_local_ip()
 
     print("=" * 65)
-    print(" 🛒 SPLITKART - Permanent Sessions Active (Zero Timeouts)")
+    print(" 🛒 SPLITKART - Groups + Permanent Admin Active")
     print("=" * 65)
     print(f" ▸ Local Access:       http://localhost:{port}")
     print(f" ▸ Phone / Wi-Fi URL:  http://{local_ip}:{port}")
+    print(f" ▸ Permanent Admin:    {PERMANENT_ADMIN_EMAIL}")
     print("=" * 65)
-    print(" Sessions: Permanent HMAC Tokens | Database Auto-Recovery Active")
+    print(" Sessions: Permanent HMAC Tokens | Groups System Active")
     print("=" * 65)
     sys.stdout.flush()
 
