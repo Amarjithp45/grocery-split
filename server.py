@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-PALACHARAK - Collaborative Grocery Shopping & Bill-Splitting Server
+SPLITKART - Collaborative Grocery Shopping & Bill-Splitting Server
 Features:
-- User Registration & Authentication (hashed passwords + session tokens)
-- Robust Admin Member Removal (cleans all foreign key dependencies safely)
+- Permanent HMAC-Signed Session Tokens (Never times out, immune to server restarts)
+- Auto-restores user identity and session on database recreation
+- User Registration & Authentication (salted SHA-256)
+- Robust Admin Member Removal (safely cleans all dependencies)
 - Identity locking (users can only act as themselves)
-- SQLite database persistence with foreign keys
 - Server-Sent Events (SSE) for instant push updates
 - REST API for items, bills, debts, and settlements (Euro € currency)
 """
@@ -19,6 +20,8 @@ import threading
 import queue
 import mimetypes
 import hashlib
+import hmac
+import base64
 import secrets
 from datetime import datetime
 from urllib.parse import urlparse
@@ -28,6 +31,9 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 DB_PATH = os.path.join(BASE_DIR, "grocery.db")
+
+# Permanent Server Secret for HMAC Session Tokens (10-year validity)
+SECRET_KEY = os.environ.get("SECRET_KEY", "SPLITKART-permanent-secret-key-2026-v1-xyz")
 
 # Thread-safe SSE client subscriptions
 sse_subscribers = []
@@ -53,6 +59,36 @@ def hash_password(password: str, salt: str = None) -> tuple[str, str]:
         salt = secrets.token_hex(16)
     hashed = hashlib.sha256((password + salt).encode('utf-8')).hexdigest()
     return hashed, salt
+
+def create_session_token(user_dict: dict) -> str:
+    """Generate a permanent HMAC-signed token that never expires."""
+    clean_user = {
+        "id": int(user_dict["id"]),
+        "name": str(user_dict["name"]),
+        "username": str(user_dict.get("username", "")),
+        "avatar_color": str(user_dict.get("avatar_color", "#10b981")),
+        "is_admin": int(user_dict.get("is_admin", 0))
+    }
+    payload_str = json.dumps(clean_user, separators=(',', ':'))
+    payload_b64 = base64.urlsafe_b64encode(payload_str.encode('utf-8')).decode('utf-8').rstrip('=')
+    signature = hmac.new(SECRET_KEY.encode('utf-8'), payload_b64.encode('utf-8'), hashlib.sha256).hexdigest()
+    return f"{payload_b64}.{signature}"
+
+def verify_session_token(token: str) -> dict:
+    """Verify HMAC-signed session token. Valid indefinitely."""
+    if not token or "." not in token:
+        return None
+    try:
+        payload_b64, signature = token.split(".", 1)
+        expected_sig = hmac.new(SECRET_KEY.encode('utf-8'), payload_b64.encode('utf-8'), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected_sig):
+            return None
+        rem = len(payload_b64) % 4
+        padded = payload_b64 + ('=' * (4 - rem) if rem else '')
+        payload_bytes = base64.urlsafe_b64decode(padded)
+        return json.loads(payload_bytes.decode('utf-8'))
+    except Exception:
+        return None
 
 def get_db():
     """Get a thread-local SQLite connection with dictionary-like row access."""
@@ -97,6 +133,11 @@ def init_db():
         if "last_active" not in cols:
             conn.execute("ALTER TABLE members ADD COLUMN last_active TIMESTAMP")
 
+        # Migration check for items table (add purchased_qty if missing)
+        cur.execute("PRAGMA table_info(items)")
+        item_cols = [r["name"] for r in cur.fetchall()]
+        if "purchased_qty" not in item_cols:
+            conn.execute("ALTER TABLE items ADD COLUMN purchased_qty TEXT")
         # Guarantee the first registered account is Group Admin
         conn.execute("""
             UPDATE members SET is_admin = 1 
@@ -123,6 +164,7 @@ def init_db():
                 is_bought INTEGER DEFAULT 0,
                 bought_by INTEGER,
                 bought_at TIMESTAMP,
+                purchased_qty TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (added_by) REFERENCES members(id),
                 FOREIGN KEY (bought_by) REFERENCES members(id)
@@ -186,7 +228,10 @@ def log_activity(conn, message: str, action_type: str, member_id=None):
     )
 
 def get_authenticated_member(headers, touch_active=False):
-    """Identify the logged-in member from the Authorization header or session cookie."""
+    """
+    Identify the logged-in member from the Authorization header or session cookie.
+    Validates permanent HMAC token and auto-restores user in DB if missing.
+    """
     auth_header = headers.get("Authorization", "")
     token = None
     if auth_header.startswith("Bearer "):
@@ -195,14 +240,53 @@ def get_authenticated_member(headers, touch_active=False):
         cookie_header = headers.get("Cookie", "")
         for part in cookie_header.split(";"):
             part = part.strip()
-            if part.startswith("session_token="):
+            if part.startswith("SPLITKART_token="):
                 token = part.split("=")[1].strip()
                 break
+            elif part.startswith("session_token="):
+                token = part.split("=")[1].strip()
+                break
+
     if not token:
         return None
 
+    # 1. First, check permanent HMAC-signed token
+    token_user = verify_session_token(token)
+    now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_db()
+
     try:
+        if token_user:
+            user_id = token_user["id"]
+            # Look up member in database
+            row = conn.execute("""
+                SELECT m.id, m.name, m.username, m.avatar_color, m.is_admin, m.last_login, m.last_active
+                FROM members m WHERE m.id = ?
+            """, (user_id,)).fetchone()
+
+            if not row:
+                # Auto-restore user if database was recreated
+                with conn:
+                    conn.execute("""
+                        INSERT OR REPLACE INTO members (id, name, username, avatar_color, is_admin, last_active, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (user_id, token_user["name"], token_user.get("username", ""), token_user.get("avatar_color", "#10b981"), token_user.get("is_admin", 0), now_str, now_str))
+                row = conn.execute("SELECT * FROM members WHERE id = ?", (user_id,)).fetchone()
+
+            user_dict = dict(row) if row else token_user
+
+            # Check if admin
+            first_user = conn.execute("SELECT MIN(id) AS min_id FROM members WHERE password_hash IS NOT NULL").fetchone()
+            if first_user and user_dict["id"] == first_user["min_id"]:
+                user_dict["is_admin"] = 1
+
+            if touch_active:
+                conn.execute("UPDATE members SET last_active = ? WHERE id = ?", (now_str, user_dict["id"]))
+                conn.commit()
+
+            return user_dict
+
+        # 2. Fallback: check sessions table (for legacy tokens)
         row = conn.execute("""
             SELECT m.id, m.name, m.username, m.avatar_color, m.is_admin, m.last_login, m.last_active
             FROM sessions s
@@ -211,18 +295,17 @@ def get_authenticated_member(headers, touch_active=False):
         """, (token,)).fetchone()
 
         if row:
-            row_dict = dict(row)
-            # If the user is the earliest registered user with password, treat as admin
+            user_dict = dict(row)
             first_user = conn.execute("SELECT MIN(id) AS min_id FROM members WHERE password_hash IS NOT NULL").fetchone()
-            if first_user and row_dict["id"] == first_user["min_id"]:
-                row_dict["is_admin"] = 1
+            if first_user and user_dict["id"] == first_user["min_id"]:
+                user_dict["is_admin"] = 1
 
             if touch_active:
-                now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-                conn.execute("UPDATE members SET last_active = ? WHERE id = ?", (now_str, row["id"]))
+                conn.execute("UPDATE members SET last_active = ? WHERE id = ?", (now_str, user_dict["id"]))
                 conn.commit()
 
-            return row_dict
+            return user_dict
+
         return None
     finally:
         conn.close()
@@ -409,7 +492,7 @@ def get_full_state(current_user=None):
     finally:
         conn.close()
 
-class PalacharakRequestHandler(BaseHTTPRequestHandler):
+class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
     def end_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
@@ -420,11 +503,14 @@ class PalacharakRequestHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
 
-    def send_json(self, data, status=200):
+    def send_json(self, data, status=200, set_cookie_token=None):
         body = json.dumps(data).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        if set_cookie_token:
+            # 10 years cookie validity
+            self.send_header("Set-Cookie", f"SPLITKART_token={set_cookie_token}; Path=/; Max-Age=315360000; SameSite=Lax")
         self.end_headers()
         self.wfile.write(body)
 
@@ -559,25 +645,26 @@ class PalacharakRequestHandler(BaseHTTPRequestHandler):
                             (name, username, hashed, salt, avatar_color, is_admin, now_str, now_str, now_str)
                         )
                         member_id = cur.lastrowid
-                        token = secrets.token_hex(32)
-                        cur.execute("INSERT INTO sessions (token, member_id) VALUES (?, ?)", (token, member_id))
+                        user_obj = {
+                            "id": member_id, 
+                            "name": name, 
+                            "username": username, 
+                            "avatar_color": avatar_color,
+                            "is_admin": is_admin
+                        }
+                        # Generate permanent HMAC token (valid forever)
+                        token = create_session_token(user_obj)
+                        cur.execute("INSERT OR REPLACE INTO sessions (token, member_id) VALUES (?, ?)", (token, member_id))
                         
-                        log_msg = f"👑 {name} registered as Group Admin" if is_admin else f"{name} registered and joined PALACHARAK"
+                        log_msg = f"👑 {name} registered as Group Admin" if is_admin else f"{name} registered and joined SPLITKART"
                         log_activity(conn, log_msg, "member_joined", member_id)
 
-                    user_obj = {
-                        "id": member_id, 
-                        "name": name, 
-                        "username": username, 
-                        "avatar_color": avatar_color,
-                        "is_admin": is_admin
-                    }
                     broadcast_event("state_updated", {
                         "action": "member_joined",
                         "name": name,
                         "actor_id": member_id
                     })
-                    self.send_json({"success": True, "token": token, "user": user_obj})
+                    self.send_json({"success": True, "token": token, "user": user_obj}, set_cookie_token=token)
                 except sqlite3.IntegrityError:
                     self.send_error_json("A user with that username or name already exists.")
                 return
@@ -607,12 +694,6 @@ class PalacharakRequestHandler(BaseHTTPRequestHandler):
                 first_user = conn.execute("SELECT MIN(id) AS min_id FROM members WHERE password_hash IS NOT NULL").fetchone()
                 is_admin = 1 if (row["is_admin"] == 1 or (first_user and row["id"] == first_user["min_id"])) else 0
 
-                token = secrets.token_hex(32)
-                with conn:
-                    conn.execute("INSERT INTO sessions (token, member_id) VALUES (?, ?)", (token, row["id"]))
-                    conn.execute("UPDATE members SET last_login = ?, last_active = ?, is_admin = ? WHERE id = ?", (now_str, now_str, is_admin, row["id"]))
-                    log_activity(conn, f"{row['name']} logged in", "member_login", row["id"])
-
                 user_obj = {
                     "id": row["id"],
                     "name": row["name"],
@@ -620,12 +701,20 @@ class PalacharakRequestHandler(BaseHTTPRequestHandler):
                     "avatar_color": row["avatar_color"],
                     "is_admin": is_admin
                 }
+                # Generate permanent HMAC token (never times out)
+                token = create_session_token(user_obj)
+
+                with conn:
+                    conn.execute("INSERT OR REPLACE INTO sessions (token, member_id) VALUES (?, ?)", (token, row["id"]))
+                    conn.execute("UPDATE members SET last_login = ?, last_active = ?, is_admin = ? WHERE id = ?", (now_str, now_str, is_admin, row["id"]))
+                    log_activity(conn, f"{row['name']} logged in", "member_login", row["id"])
+
                 broadcast_event("state_updated", {
                     "action": "user_logged_in",
                     "actor": row["name"],
                     "actor_id": row["id"]
                 })
-                self.send_json({"success": True, "token": token, "user": user_obj})
+                self.send_json({"success": True, "token": token, "user": user_obj}, set_cookie_token=token)
                 return
 
             # -----------------------------------------------------
@@ -687,6 +776,9 @@ class PalacharakRequestHandler(BaseHTTPRequestHandler):
                     self.send_error_json("item_id is required")
                     return
 
+                # Optional: quantity the buyer actually purchased
+                purchased_qty = body.get("purchased_qty", None)
+
                 with conn:
                     cur = conn.cursor()
                     item = cur.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
@@ -697,14 +789,17 @@ class PalacharakRequestHandler(BaseHTTPRequestHandler):
                     new_status = 0 if item["is_bought"] else 1
                     bought_by = current_user["id"] if new_status == 1 else None
                     bought_at = now_str if new_status == 1 else None
+                    # Store purchased_qty only when marking as bought; clear it when un-buying
+                    pqty = str(purchased_qty).strip() if (new_status == 1 and purchased_qty) else None
 
                     cur.execute(
-                        "UPDATE items SET is_bought = ?, bought_by = ?, bought_at = ? WHERE id = ?",
-                        (new_status, bought_by, bought_at, item_id)
+                        "UPDATE items SET is_bought = ?, bought_by = ?, bought_at = ?, purchased_qty = ? WHERE id = ?",
+                        (new_status, bought_by, bought_at, pqty, item_id)
                     )
 
+                    qty_note = f" ({pqty})" if pqty else ""
                     msg = (
-                        f"{current_user['name']} bought: {item['title']}"
+                        f"{current_user['name']} bought: {item['title']}{qty_note}"
                         if new_status
                         else f"{current_user['name']} moved back to cart: {item['title']}"
                     )
@@ -856,7 +951,7 @@ class PalacharakRequestHandler(BaseHTTPRequestHandler):
                 self.send_json({"success": True})
                 return
 
-            # 7. Admin Member Removal (Fixed with cascade cleanup)
+            # 7. Admin Member Removal (Safely cascades dependencies)
             if path == "/api/members/remove":
                 if not current_user.get("is_admin"):
                     self.send_error_json("Only Group Admin can remove members", status=403)
@@ -911,23 +1006,23 @@ def get_local_ip():
 def run_server(port=8000):
     init_db()
     server_address = ("0.0.0.0", port)
-    httpd = ThreadingHTTPServer(server_address, PalacharakRequestHandler)
+    httpd = ThreadingHTTPServer(server_address, SPLITKARTRequestHandler)
     local_ip = get_local_ip()
 
     print("=" * 65)
-    print(" 🛒 PALACHARAK - Group Grocery & Bill-Splitting Website")
+    print(" 🛒 SPLITKART - Permanent Sessions Active (Zero Timeouts)")
     print("=" * 65)
     print(f" ▸ Local Access:       http://localhost:{port}")
     print(f" ▸ Phone / Wi-Fi URL:  http://{local_ip}:{port}")
     print("=" * 65)
-    print(" Clean 3-Tab Interface | Euro (€) | Admin Remove Enabled")
+    print(" Sessions: Permanent HMAC Tokens | Database Auto-Recovery Active")
     print("=" * 65)
     sys.stdout.flush()
 
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping PALACHARAK server...")
+        print("\nStopping SPLITKART server...")
         httpd.server_close()
 
 if __name__ == "__main__":

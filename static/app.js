@@ -1,5 +1,5 @@
 /**
- * PALACHARAK Client Application
+ * SPLITKART Client Application
  * Clean 3-Tab Interface (Grocery, Split, Friends)
  * Features:
  * - Real User Authentication & Registration (Session Tokens)
@@ -15,7 +15,7 @@
 // Application State
 const state = {
   currentUser: null,
-  authToken: localStorage.getItem('palacharak_token') || localStorage.getItem('palachrakk_token') || localStorage.getItem('cartshare_token') || null,
+  authToken: localStorage.getItem('SPLITKART_token') || localStorage.getItem('palachrakk_token') || localStorage.getItem('cartshare_token') || null,
   members: [],
   activeItems: [],
   boughtItems: [],
@@ -91,8 +91,8 @@ async function handleLogin(e) {
       state.authToken = data.token;
       state.currentUser = data.user;
       // Persist both token AND user so the app works immediately on next open
-      localStorage.setItem('palacharak_token', data.token);
-      localStorage.setItem('palacharak_user', JSON.stringify(data.user));
+      localStorage.setItem('SPLITKART_token', data.token);
+      localStorage.setItem('SPLITKART_user', JSON.stringify(data.user));
       showToast(`Welcome back, ${data.user.name}! 👋`, 'success');
       showAppScreen();
       loadState();
@@ -142,9 +142,9 @@ async function handleRegister(e) {
       state.authToken = data.token;
       state.currentUser = data.user;
       // Persist both token AND user so the app works immediately on next open
-      localStorage.setItem('palacharak_token', data.token);
-      localStorage.setItem('palacharak_user', JSON.stringify(data.user));
-      showToast(`Welcome to PALACHARAK, ${data.user.name}! 🛒`, 'success');
+      localStorage.setItem('SPLITKART_token', data.token);
+      localStorage.setItem('SPLITKART_user', JSON.stringify(data.user));
+      showToast(`Welcome to SPLITKART, ${data.user.name}! 🛒`, 'success');
       showAppScreen();
       loadState();
     } else {
@@ -177,8 +177,8 @@ async function logout() {
 
   state.authToken = null;
   state.currentUser = null;
-  localStorage.removeItem('palacharak_token');
-  localStorage.removeItem('palacharak_user');
+  localStorage.removeItem('SPLITKART_token');
+  localStorage.removeItem('SPLITKART_user');
   localStorage.removeItem('palachrakk_token');
   localStorage.removeItem('cartshare_token');
   showAuthScreen();
@@ -229,9 +229,9 @@ async function requestPhoneNotificationPermission() {
   checkPhoneNotificationStatus();
 
   if (permission === "granted") {
-    showToast("PALACHARAK alerts enabled!", "success");
+    showToast("SPLITKART alerts enabled!", "success");
     await sendPhoneNotification(
-      "PALACHARAK Alerts Active! 🛒",
+      "SPLITKART Alerts Active! 🛒",
       "You will receive alerts in your status bar whenever friends add or buy items."
     );
   }
@@ -257,7 +257,7 @@ async function sendPhoneNotification(title, body) {
     icon: '/icon-192.png',
     badge: '/icon-192.png',
     vibrate: [200, 100, 200],
-    tag: 'palacharak-' + Date.now(),
+    tag: 'SPLITKART-' + Date.now(),
     renotify: true
   };
 
@@ -380,27 +380,27 @@ function handleLiveEvent(data) {
 
   if (data.action === 'item_added') {
     if (!isMe) {
-      sendPhoneNotification("🛒 PALACHARAK: New Item", `${data.actor || 'A friend'} added "${data.title}"`);
+      sendPhoneNotification("🛒 SPLITKART: New Item", `${data.actor || 'A friend'} added "${data.title}"`);
       playSound('add');
     }
     showToast(`${data.actor || 'Someone'} added: ${data.title}`, 'info');
   } else if (data.action === 'item_toggled') {
     if (data.is_bought) {
       if (!isMe) {
-        sendPhoneNotification("✓ PALACHARAK: Item Bought", `${data.actor || 'A friend'} bought "${data.title}"`);
+        sendPhoneNotification("✓ SPLITKART: Item Bought", `${data.actor || 'A friend'} bought "${data.title}"`);
         playSound('buy');
       }
       showToast(`${data.actor || 'Someone'} bought: ${data.title}`, 'success');
     }
   } else if (data.action === 'bill_added') {
     if (!isMe) {
-      sendPhoneNotification("🧾 PALACHARAK: New Bill (€)", `${data.payer} added €${Number(data.amount).toFixed(2)} bill`);
+      sendPhoneNotification("🧾 SPLITKART: New Bill (€)", `${data.payer} added €${Number(data.amount).toFixed(2)} bill`);
       playSound('bill');
     }
     showToast(`${data.payer} added €${Number(data.amount).toFixed(2)} bill for ${data.store}!`, 'purple');
   } else if (data.action === 'settlement') {
     if (!isMe) {
-      sendPhoneNotification("💶 PALACHARAK: Debt Settled", `${data.from} paid €${Number(data.amount).toFixed(2)} to ${data.to}`);
+      sendPhoneNotification("💶 SPLITKART: Debt Settled", `${data.from} paid €${Number(data.amount).toFixed(2)} to ${data.to}`);
       playSound('settle');
     }
     showToast(`${data.from} paid €${Number(data.amount).toFixed(2)} to ${data.to}`, 'success');
@@ -423,7 +423,7 @@ async function loadState(initial = false) {
 
     if (res.status === 401) {
       // Only log out if the user explicitly has no cached identity
-      const cachedUser = localStorage.getItem('palacharak_user');
+      const cachedUser = localStorage.getItem('SPLITKART_user');
       if (!cachedUser && !state.currentUser) {
         // Genuinely not logged in
         showAuthScreen();
@@ -451,7 +451,7 @@ async function loadState(initial = false) {
 
     if (state.currentUser) {
       // Update cached user (keep name/admin status fresh)
-      localStorage.setItem('palacharak_user', JSON.stringify(state.currentUser));
+      localStorage.setItem('SPLITKART_user', JSON.stringify(state.currentUser));
       showAppScreen();
       renderLockedUserProfile();
       renderGroceryList();
@@ -460,7 +460,7 @@ async function loadState(initial = false) {
       checkPhoneNotificationStatus();
     } else {
       // Server says no user — only go to auth if we have no local cache either
-      const cachedUser = localStorage.getItem('palacharak_user');
+      const cachedUser = localStorage.getItem('SPLITKART_user');
       if (!cachedUser) {
         showAuthScreen();
       } else {
@@ -477,7 +477,7 @@ async function loadState(initial = false) {
 function scheduleLoadStateRetry() {
   if (_loadStateRetries >= _MAX_RETRIES) {
     // After ~60s of failure, check if we have cached state to show
-    const cachedUser = localStorage.getItem('palacharak_user');
+    const cachedUser = localStorage.getItem('SPLITKART_user');
     if (cachedUser) {
       // Show cached UI with an offline banner rather than kicking to login
       showToast('Server unreachable. Working offline.', 'warning');
@@ -548,7 +548,7 @@ function renderGroceryList() {
         <div class="flex items-center gap-3 min-w-0 flex-1">
           <input type="checkbox" 
                  class="custom-checkbox flex-shrink-0" 
-                 onchange="toggleItemBought(${item.id})"
+                 onchange="openBuyModal(${item.id}, '${escapeHtml(item.quantity)}')"
                  title="Mark as bought" />
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2 flex-wrap">
@@ -581,7 +581,8 @@ function renderGroceryList() {
           <div class="flex items-center gap-2 min-w-0">
             <button onclick="toggleItemBought(${item.id})" class="w-5 h-5 rounded-md bg-emerald-600 text-white flex items-center justify-center text-[10px] font-bold" title="Put back to cart">✓</button>
             <div class="min-w-0">
-              <span class="line-through text-slate-400 font-medium">${escapeHtml(item.title)} (${escapeHtml(item.quantity)})</span>
+              <span class="line-through text-slate-400 font-medium">${escapeHtml(item.title)}</span>
+              <span class="ml-1 text-emerald-700 font-bold no-underline" style="text-decoration:none">${escapeHtml(item.purchased_qty || item.quantity)}</span>
               <div class="text-[10px] text-slate-400">
                 Bought by <strong class="text-slate-600">${escapeHtml(item.bought_by_name || 'Someone')}</strong>
                 ${item.bought_at ? `• 🕒 ${formatDateTime(item.bought_at)}` : ''}
@@ -788,7 +789,7 @@ function renderFriendsDirectory() {
  * Robust Admin Member Removal
  */
 async function removeMember(memberId, memberName) {
-  if (!confirm(`Are you sure you want to remove "${memberName}" from PALACHARAK?`)) return;
+  if (!confirm(`Are you sure you want to remove "${memberName}" from SPLITKART?`)) return;
 
   try {
     const res = await fetch('/api/members/remove', {
@@ -799,7 +800,7 @@ async function removeMember(memberId, memberName) {
     const data = await res.json();
 
     if (res.ok && data.success) {
-      showToast(`Removed ${memberName} from PALACHARAK.`, 'info');
+      showToast(`Removed ${memberName} from SPLITKART.`, 'info');
       await loadState();
     } else {
       alert(data.error || 'Failed to remove member.');
@@ -847,12 +848,26 @@ async function addItem(e) {
   }
 }
 
-async function toggleItemBought(itemId) {
+function openBuyModal(itemId, currentQty) {
+  // Show a small modal so the user can confirm/update quantity purchased
+  document.getElementById('buy-item-id').value = itemId;
+  const qtyInput = document.getElementById('buy-qty-input');
+  if (qtyInput) qtyInput.value = currentQty || '1';
+  openModal('buy-qty-modal');
+  setTimeout(() => qtyInput && qtyInput.select(), 80);
+}
+
+async function confirmBuyItem() {
+  const itemId = parseInt(document.getElementById('buy-item-id').value);
+  const qty = document.getElementById('buy-qty-input').value.trim() || '1';
+
+  closeModal('buy-qty-modal');
+
   try {
     const res = await fetch('/api/items/toggle', {
       method: 'POST',
       headers: getAuthHeaders(),
-      body: JSON.stringify({ item_id: itemId })
+      body: JSON.stringify({ item_id: itemId, purchased_qty: qty })
     });
     if (res.ok) {
       const data = await res.json();
@@ -860,6 +875,25 @@ async function toggleItemBought(itemId) {
       loadState();
     }
   } catch (err) {}
+}
+
+async function toggleItemBought(itemId) {
+  // Un-buying (putting back) goes straight through; buying triggers qty modal
+  const item = state.boughtItems.find(i => i.id === itemId);
+  if (item) {
+    // Already bought — toggle back to active without modal
+    try {
+      const res = await fetch('/api/items/toggle', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ item_id: itemId })
+      });
+      if (res.ok) loadState();
+    } catch (err) {}
+  } else {
+    const activeItem = state.activeItems.find(i => i.id === itemId);
+    openBuyModal(itemId, activeItem ? activeItem.quantity : '1');
+  }
 }
 
 async function deleteItem(itemId) {
@@ -1089,7 +1123,7 @@ function triggerPwaInstall() {
     deferredPrompt.prompt();
     deferredPrompt.userChoice.then((choiceResult) => {
       if (choiceResult.outcome === 'accepted') {
-        showToast('PALACHARAK app installed!', 'success');
+        showToast('SPLITKART app installed!', 'success');
       }
       deferredPrompt = null;
     });
@@ -1102,7 +1136,7 @@ function triggerPwaInstall() {
 window.addEventListener('DOMContentLoaded', () => {
   // --- Instant auth restore from localStorage (no server round-trip needed) ---
   const cachedToken = state.authToken; // already read from localStorage at top
-  const cachedUserStr = localStorage.getItem('palacharak_user');
+  const cachedUserStr = localStorage.getItem('SPLITKART_user');
 
   if (cachedToken && cachedUserStr) {
     try {
@@ -1115,7 +1149,7 @@ window.addEventListener('DOMContentLoaded', () => {
       loadState(true);
     } catch (e) {
       // Corrupt cache — start fresh
-      localStorage.removeItem('palacharak_user');
+      localStorage.removeItem('SPLITKART_user');
       showAuthScreen();
     }
   } else if (cachedToken) {

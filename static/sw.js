@@ -1,5 +1,5 @@
-// PALACHARAK Service Worker - Offline Caching & Mobile System Notifications
-const CACHE_NAME = 'palacharak-v5';
+// SPLITKART Service Worker - Offline Caching & Mobile System Notifications
+const CACHE_NAME = 'SPLITKART-v5';
 const STATIC_ASSETS = [
   '/',
   '/style.css',

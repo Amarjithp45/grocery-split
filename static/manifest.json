@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "PALACHARAK — Grocery & Split",
-  "short_name": "PALACHARAK",
+  "name": "SPLITKART — Grocery & Split",
+  "short_name": "SPLITKART",
   "description": "Collaborative supermarket shopping list and group bill splitting app in Euros",
   "start_url": "/",
   "scope": "/",
