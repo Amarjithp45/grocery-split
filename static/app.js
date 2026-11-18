@@ -16,8 +16,9 @@
 const state = {
   currentUser: null,
   authToken: localStorage.getItem('SPLITKART_token') || localStorage.getItem('palacharak_token') || localStorage.getItem('palachrakk_token') || localStorage.getItem('cartshare_token') || null,
-  activeGroupId: parseInt(localStorage.getItem('splitkart_group_id')) || null,
+  activeGroupId: localStorage.getItem('splitkart_group_id') !== null ? parseInt(localStorage.getItem('splitkart_group_id')) : null,
   activeGroup: JSON.parse(localStorage.getItem('splitkart_group') || 'null'),
+  availableGroups: [],
   members: [],
   activeItems: [],
   boughtItems: [],
@@ -163,17 +164,10 @@ async function handleRegister(e) {
   }
 }
 
-// Called after successful login/register — go to group selector
+// Called after successful login/register — immediately enter the app
 async function afterLogin() {
-  // If we have a cached group, go straight to app
-  if (state.activeGroupId && state.activeGroup) {
-    showAppScreen();
-    loadState();
-  } else {
-    // Show group screen
-    showGroupScreen();
-    await loadGroupsForSelector();
-  }
+  showAppScreen();
+  await loadState();
 }
 
 async function logout() {
@@ -192,6 +186,8 @@ async function logout() {
   localStorage.removeItem('SPLITKART_user');
   localStorage.removeItem('splitkart_group_id');
   localStorage.removeItem('splitkart_group');
+  localStorage.removeItem('palacharak_token');
+  localStorage.removeItem('palacharak_user');
   localStorage.removeItem('palachrakk_token');
   localStorage.removeItem('cartshare_token');
   showAuthScreen();
@@ -203,101 +199,104 @@ function showAuthScreen() {
   document.getElementById('auth-screen').classList.add('flex');
   document.getElementById('app-screen').classList.add('hidden');
   document.getElementById('app-screen').classList.remove('flex');
-  document.getElementById('group-screen').classList.add('hidden');
-  document.getElementById('group-screen').classList.remove('flex');
 }
 
 function showAppScreen() {
   document.getElementById('auth-screen').classList.add('hidden');
   document.getElementById('auth-screen').classList.remove('flex');
-  document.getElementById('group-screen').classList.add('hidden');
-  document.getElementById('group-screen').classList.remove('flex');
   document.getElementById('app-screen').classList.remove('hidden');
   document.getElementById('app-screen').classList.add('flex');
 }
 
-function showGroupScreen() {
-  document.getElementById('auth-screen').classList.add('hidden');
-  document.getElementById('auth-screen').classList.remove('flex');
-  document.getElementById('app-screen').classList.add('hidden');
-  document.getElementById('app-screen').classList.remove('flex');
-  document.getElementById('group-screen').classList.remove('hidden');
-  document.getElementById('group-screen').classList.add('flex');
+// =========================================================
+// 2. GROUPS MANAGEMENT (Switch, Create, Join)
+// =========================================================
+
+async function openGroupModal() {
+  openModal('group-modal');
+  await loadGroupsForSelector();
 }
 
-// =========================================================
-// 2. GROUPS SYSTEM
-// =========================================================
-
 async function loadGroupsForSelector() {
-  const listEl = document.getElementById('group-list');
-  const statusEl = document.getElementById('group-status');
-  if (listEl) listEl.innerHTML = '<p class="text-xs text-slate-400 text-center py-4">Loading groups…</p>';
+  const listEl = document.getElementById('group-modal-list');
+  const countBadge = document.getElementById('group-count-badge');
+  if (listEl) listEl.innerHTML = '<p class="text-xs text-slate-400 text-center py-3">Loading groups…</p>';
 
   try {
     const res = await fetch('/api/groups', { headers: getAuthHeaders() });
     if (!res.ok) return;
     const data = await res.json();
-    renderGroupSelector(data.groups || []);
+    state.availableGroups = data.groups || [];
+    if (countBadge) countBadge.textContent = `${state.availableGroups.length} total`;
+    renderGroupSelector(state.availableGroups);
   } catch (err) {
     console.error('Error loading groups:', err);
-    if (listEl) listEl.innerHTML = '<p class="text-xs text-rose-500 text-center py-4">Could not load groups.</p>';
+    if (listEl) listEl.innerHTML = '<p class="text-xs text-rose-500 text-center py-3">Could not load groups.</p>';
   }
 }
 
 function renderGroupSelector(groups) {
-  const listEl = document.getElementById('group-list');
-  const userNameEl = document.getElementById('group-screen-username');
-  if (userNameEl && state.currentUser) {
-    userNameEl.textContent = state.currentUser.name;
-  }
-
+  const listEl = document.getElementById('group-modal-list');
   if (!listEl) return;
 
-  if (groups.length === 0) {
+  if (!groups || groups.length === 0) {
     listEl.innerHTML = `
-      <div class="text-center py-6 text-slate-400">
-        <div class="text-3xl mb-2">👥</div>
-        <p class="text-sm font-semibold text-slate-600">No groups yet</p>
-        <p class="text-xs mt-1">Create your first group or join one with an invite code.</p>
+      <div class="text-center py-4 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+        <p class="text-xs font-semibold text-slate-600">No shared groups yet</p>
+        <p class="text-[11px] text-slate-400 mt-0.5">Create a group below or join with an invite code.</p>
       </div>
     `;
     return;
   }
 
-  listEl.innerHTML = groups.map(g => `
-    <div onclick="selectGroup(${g.id}, ${JSON.stringify(JSON.stringify(g))})"
-         class="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs cursor-pointer hover:border-emerald-400 hover:shadow-md transition flex items-center justify-between gap-3">
-      <div>
-        <div class="font-bold text-slate-900 text-sm">${escapeHtml(g.name)}</div>
-        <div class="text-[11px] text-slate-400 mt-0.5">
-          ${g.member_count} member${g.member_count !== 1 ? 's' : ''} •
-          Code: <span class="font-mono text-emerald-700 font-bold">${escapeHtml(g.invite_code)}</span>
+  listEl.innerHTML = groups.map(g => {
+    const isCurrent = state.activeGroupId === g.id;
+    return `
+      <div class="p-3 rounded-2xl border ${isCurrent ? 'border-emerald-500 bg-emerald-50/60 shadow-xs' : 'border-slate-200 bg-white hover:border-slate-300'} flex items-center justify-between gap-2 transition">
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="font-bold text-slate-900 text-sm truncate">${escapeHtml(g.name)}</span>
+            ${isCurrent ? '<span class="text-[9px] bg-emerald-600 text-white font-extrabold px-1.5 py-0.2 rounded-md">Active</span>' : ''}
+          </div>
+          <div class="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
+            <span>Code: <strong class="font-mono text-emerald-700 font-bold">${escapeHtml(g.invite_code)}</strong></span>
+            <button type="button" onclick="copyInviteCode('${escapeHtml(g.invite_code)}')" class="text-[10px] text-emerald-600 hover:underline font-bold">📋 Copy</button>
+            <span class="text-slate-300">•</span>
+            <span>${g.member_count} member${g.member_count !== 1 ? 's' : ''}</span>
+          </div>
         </div>
+        <button type="button" onclick="selectGroupById(${g.id})" class="px-3.5 py-1.5 rounded-xl ${isCurrent ? 'bg-emerald-600 text-white' : 'bg-slate-900 hover:bg-emerald-600 text-white'} text-xs font-bold transition flex-shrink-0">
+          ${isCurrent ? 'Open' : 'Switch →'}
+        </button>
       </div>
-      <span class="text-emerald-600 text-lg">→</span>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
-function selectGroup(groupId, groupJsonStr) {
-  try {
-    const group = JSON.parse(groupJsonStr);
-    state.activeGroupId = groupId;
-    state.activeGroup = group;
-    localStorage.setItem('splitkart_group_id', groupId);
-    localStorage.setItem('splitkart_group', JSON.stringify(group));
-    showAppScreen();
-    loadState();
-    showToast(`Switched to "${group.name}"`, 'success');
-  } catch (e) {
-    console.error('selectGroup error:', e);
+function selectGroupById(groupId) {
+  state.activeGroupId = groupId;
+  localStorage.setItem('splitkart_group_id', String(groupId));
+  closeModal('group-modal');
+  loadState();
+
+  if (groupId === 0) {
+    showToast('Switched to Personal List (No Group)', 'info');
+  } else {
+    const grp = (state.availableGroups || []).find(g => g.id === groupId);
+    showToast(grp ? `Opened "${grp.name}"` : 'Switched group', 'success');
   }
 }
 
-function changeGroup() {
-  showGroupScreen();
-  loadGroupsForSelector();
+function copyInviteCode(code) {
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(code).then(() => {
+      showToast(`Copied invite code: ${code}`, 'success');
+    }).catch(() => {
+      prompt('Share this invite code:', code);
+    });
+  } else {
+    prompt('Share this invite code:', code);
+  }
 }
 
 async function createGroup() {
@@ -321,7 +320,7 @@ async function createGroup() {
     if (res.ok && data.success) {
       if (nameInput) nameInput.value = '';
       showToast(`Group "${data.group.name}" created! Code: ${data.group.invite_code}`, 'success');
-      selectGroup(data.group.id, JSON.stringify(data.group));
+      selectGroupById(data.group.id);
     } else {
       if (errorEl) { errorEl.textContent = data.error || 'Failed to create group.'; errorEl.classList.remove('hidden'); }
     }
@@ -351,7 +350,7 @@ async function joinGroup() {
     if (res.ok && data.success) {
       if (codeInput) codeInput.value = '';
       showToast(`Joined "${data.group.name}"!`, 'success');
-      selectGroup(data.group.id, JSON.stringify(data.group));
+      selectGroupById(data.group.id);
     } else {
       if (errorEl) { errorEl.textContent = data.error || 'Invalid invite code.'; errorEl.classList.remove('hidden'); }
     }
@@ -568,13 +567,13 @@ let _loadStateRetries = 0;
 const _MAX_RETRIES = 20;
 
 async function loadState(initial = false) {
-  if (!state.activeGroupId) return;
+  const gidParam = (state.activeGroupId !== null && state.activeGroupId !== undefined) ? state.activeGroupId : '';
 
   try {
-    const res = await fetch(`/api/state?group_id=${state.activeGroupId}`, { headers: getAuthHeaders() });
+    const res = await fetch(`/api/state?group_id=${gidParam}`, { headers: getAuthHeaders() });
 
     if (res.status === 401) {
-      const cachedUser = localStorage.getItem('SPLITKART_user');
+      const cachedUser = localStorage.getItem('SPLITKART_user') || localStorage.getItem('palacharak_user');
       if (!cachedUser && !state.currentUser) {
         showAuthScreen();
       } else {
@@ -586,18 +585,13 @@ async function loadState(initial = false) {
     const data = await res.json();
     _loadStateRetries = 0;
 
-    // If server says needs_group, go back to group selector
-    if (data.needs_group) {
-      if (data.currentUser) {
-        state.currentUser = data.currentUser;
-        localStorage.setItem('SPLITKART_user', JSON.stringify(data.currentUser));
-      }
-      showGroupScreen();
-      await loadGroupsForSelector();
-      return;
-    }
-
     state.currentUser = data.currentUser || state.currentUser;
+    state.activeGroup = data.active_group || data.group || null;
+    if (state.activeGroup && state.activeGroup.id !== undefined) {
+      state.activeGroupId = state.activeGroup.id;
+      localStorage.setItem('splitkart_group_id', String(state.activeGroup.id));
+    }
+    state.availableGroups = data.groups || [];
     state.members = data.members || [];
     state.activeItems = data.active_items || [];
     state.boughtItems = data.bought_items || [];
@@ -606,12 +600,6 @@ async function loadState(initial = false) {
     state.transfers = data.transfers || [];
     state.activities = data.activities || [];
     state.stats = data.stats || {};
-
-    // Update active group info from server
-    if (data.group) {
-      state.activeGroup = data.group;
-      localStorage.setItem('splitkart_group', JSON.stringify(data.group));
-    }
 
     if (state.currentUser) {
       localStorage.setItem('SPLITKART_user', JSON.stringify(state.currentUser));
@@ -623,7 +611,7 @@ async function loadState(initial = false) {
       renderFriendsDirectory();
       checkPhoneNotificationStatus();
     } else {
-      const cachedUser = localStorage.getItem('SPLITKART_user');
+      const cachedUser = localStorage.getItem('SPLITKART_user') || localStorage.getItem('palacharak_user');
       if (!cachedUser) {
         showAuthScreen();
       } else {
@@ -682,13 +670,13 @@ function renderLockedUserProfile() {
 }
 
 function renderGroupBadge() {
-  const badgeEl = document.getElementById('group-header-badge');
-  if (!badgeEl || !state.activeGroup) return;
-  badgeEl.innerHTML = `
-    Group: <strong>${escapeHtml(state.activeGroup.name)}</strong>
-    • Code: <span class="font-mono text-emerald-700">${escapeHtml(state.activeGroup.invite_code || '')}</span>
-    <button onclick="changeGroup()" class="ml-1.5 text-slate-400 hover:text-emerald-600 text-[9px] font-bold underline">Change</button>
-  `;
+  const badgeEl = document.getElementById('header-group-name');
+  if (!badgeEl) return;
+  if (state.activeGroup && state.activeGroup.id > 0) {
+    badgeEl.textContent = state.activeGroup.name;
+  } else {
+    badgeEl.textContent = 'Personal List';
+  }
 }
 
 function renderGroceryList() {
@@ -1301,18 +1289,10 @@ window.addEventListener('DOMContentLoaded', () => {
     try {
       const cachedUser = JSON.parse(cachedUserStr);
       state.currentUser = cachedUser;
-
-      // If we have a cached group, go straight to app
-      if (state.activeGroupId && state.activeGroup) {
-        showAppScreen();
-        renderLockedUserProfile();
-        renderGroupBadge();
-        loadState(true);
-      } else {
-        // Show group selector
-        showGroupScreen();
-        loadGroupsForSelector();
-      }
+      showAppScreen();
+      renderLockedUserProfile();
+      renderGroupBadge();
+      loadState(true);
     } catch (e) {
       localStorage.removeItem('SPLITKART_user');
       localStorage.removeItem('palacharak_user');

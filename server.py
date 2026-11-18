@@ -455,150 +455,190 @@ def get_user_groups(user_id):
         conn.close()
 
 def get_full_state(current_user=None, group_id=None):
-    """Retrieve full application state for client consumption including member login presence."""
+    """Retrieve full application state for client consumption."""
     conn = get_db()
     try:
         now_utc = datetime.utcnow()
 
-        # If no group_id, return groups list so client can pick one
-        if group_id is None:
+        user_groups = get_user_groups(current_user["id"]) if current_user else []
+
+        # Determine effective group_id:
+        # If group_id is not specified, default to user's first group if they have one; else 0 (Personal)
+        if group_id is None or group_id == "" or str(group_id).lower() == "none":
+            group_id = user_groups[0]["id"] if user_groups else 0
+        else:
+            try:
+                group_id = int(group_id)
+            except (ValueError, TypeError):
+                group_id = 0
+
+        group_info = None
+        if group_id > 0:
+            group_row = conn.execute("SELECT id, name, invite_code FROM groups WHERE id = ?", (group_id,)).fetchone()
+            if group_row:
+                group_info = dict(group_row)
+            else:
+                group_id = 0
+
+        if group_id == 0:
+            group_info = {"id": 0, "name": "Personal List", "invite_code": ""}
+            members = []
             if current_user:
-                groups = get_user_groups(current_user["id"])
-                return {
-                    "currentUser": current_user,
-                    "needs_group": True,
-                    "groups": groups
-                }
-            return {"currentUser": None, "needs_group": True, "groups": []}
+                m_copy = dict(current_user)
+                m_copy["is_online"] = True
+                m_copy["items_added_count"] = 0
+                m_copy["items_bought_count"] = 0
+                members.append(m_copy)
 
-        group_id = int(group_id)
+            if current_user:
+                items_query = """
+                    SELECT i.*,
+                           m1.name AS added_by_name, m1.avatar_color AS added_by_color,
+                           m2.name AS bought_by_name, m2.avatar_color AS bought_by_color
+                    FROM items i
+                    LEFT JOIN members m1 ON i.added_by = m1.id
+                    LEFT JOIN members m2 ON i.bought_by = m2.id
+                    WHERE (i.group_id IS NULL OR i.group_id = 0 OR i.added_by = ?)
+                    ORDER BY i.is_urgent DESC, i.id DESC
+                """
+                all_items = [dict(r) for r in conn.execute(items_query, (current_user["id"],)).fetchall()]
+            else:
+                all_items = []
+            active_items = [i for i in all_items if not i["is_bought"]]
+            bought_items = [i for i in all_items if i["is_bought"]]
+            bills = []
+            settlements = []
+            member_balances = []
+            transfers = []
+            activities = []
+            total_spent = 0.0
 
-        # Members in this group
-        members_rows = conn.execute("""
-            SELECT m.id, m.name, m.username, m.avatar_color, m.is_admin, m.last_login, m.last_active, m.created_at,
-                   (SELECT COUNT(*) FROM items WHERE added_by = m.id AND group_id = ?) AS items_added_count,
-                   (SELECT COUNT(*) FROM items WHERE bought_by = m.id AND group_id = ?) AS items_bought_count
-            FROM members m
-            JOIN group_members gm ON m.id = gm.member_id
-            WHERE gm.group_id = ?
-            ORDER BY m.is_admin DESC, m.name ASC
-        """, (group_id, group_id, group_id)).fetchall()
+        else:
+            # Group mode: fetch members in this group
+            members_rows = conn.execute("""
+                SELECT m.id, m.name, m.username, m.avatar_color, m.is_admin, m.last_login, m.last_active, m.created_at,
+                       (SELECT COUNT(*) FROM items WHERE added_by = m.id AND group_id = ?) AS items_added_count,
+                       (SELECT COUNT(*) FROM items WHERE bought_by = m.id AND group_id = ?) AS items_bought_count
+                FROM members m
+                JOIN group_members gm ON m.id = gm.member_id
+                WHERE gm.group_id = ?
+                ORDER BY m.is_admin DESC, m.name ASC
+            """, (group_id, group_id, group_id)).fetchall()
 
-        members = []
-        online_count = 0
-        for r in members_rows:
-            m = dict(r)
-            if is_permanent_admin(m.get("username", "")):
-                m["is_admin"] = 1
+            members = []
+            online_count = 0
+            for r in members_rows:
+                m = dict(r)
+                if is_permanent_admin(m.get("username", "")):
+                    m["is_admin"] = 1
 
-            is_online = False
-            if m.get("last_active"):
-                try:
-                    dt = datetime.strptime(m["last_active"], "%Y-%m-%d %H:%M:%S")
-                    if (now_utc - dt).total_seconds() < 300:
-                        is_online = True
-                except Exception:
-                    pass
+                is_online = False
+                if m.get("last_active"):
+                    try:
+                        dt = datetime.strptime(m["last_active"], "%Y-%m-%d %H:%M:%S")
+                        if (now_utc - dt).total_seconds() < 300:
+                            is_online = True
+                    except Exception:
+                        pass
 
-            if current_user and m["id"] == current_user["id"]:
-                is_online = True
+                if current_user and m["id"] == current_user["id"]:
+                    is_online = True
 
-            if is_online:
-                online_count += 1
+                if is_online:
+                    online_count += 1
 
-            m["is_online"] = is_online
-            members.append(m)
+                m["is_online"] = is_online
+                members.append(m)
 
-        # Items filtered by group
-        items_query = """
-            SELECT i.*,
-                   m1.name AS added_by_name, m1.avatar_color AS added_by_color,
-                   m2.name AS bought_by_name, m2.avatar_color AS bought_by_color
-            FROM items i
-            LEFT JOIN members m1 ON i.added_by = m1.id
-            LEFT JOIN members m2 ON i.bought_by = m2.id
-            WHERE i.group_id = ?
-            ORDER BY i.is_urgent DESC, i.id DESC
-        """
-        all_items = [dict(r) for r in conn.execute(items_query, (group_id,)).fetchall()]
-        active_items = [i for i in all_items if not i["is_bought"]]
-        bought_items = [i for i in all_items if i["is_bought"]]
+            # Items filtered by group
+            items_query = """
+                SELECT i.*,
+                       m1.name AS added_by_name, m1.avatar_color AS added_by_color,
+                       m2.name AS bought_by_name, m2.avatar_color AS bought_by_color
+                FROM items i
+                LEFT JOIN members m1 ON i.added_by = m1.id
+                LEFT JOIN members m2 ON i.bought_by = m2.id
+                WHERE i.group_id = ?
+                ORDER BY i.is_urgent DESC, i.id DESC
+            """
+            all_items = [dict(r) for r in conn.execute(items_query, (group_id,)).fetchall()]
+            active_items = [i for i in all_items if not i["is_bought"]]
+            bought_items = [i for i in all_items if i["is_bought"]]
 
-        # Bills with splits filtered by group
-        bills_rows = conn.execute("""
-            SELECT b.*, m.name AS paid_by_name, m.avatar_color AS paid_by_color
-            FROM bills b
-            JOIN members m ON b.paid_by = m.id
-            WHERE b.group_id = ?
-            ORDER BY b.bill_date DESC, b.id DESC
-        """, (group_id,)).fetchall()
+            # Bills with splits filtered by group
+            bills_rows = conn.execute("""
+                SELECT b.*, m.name AS paid_by_name, m.avatar_color AS paid_by_color
+                FROM bills b
+                JOIN members m ON b.paid_by = m.id
+                WHERE b.group_id = ?
+                ORDER BY b.bill_date DESC, b.id DESC
+            """, (group_id,)).fetchall()
 
-        bills = []
-        for b in bills_rows:
-            b_dict = dict(b)
-            splits = conn.execute("""
-                SELECT bs.*, m.name AS member_name
-                FROM bill_splits bs
-                JOIN members m ON bs.member_id = m.id
-                WHERE bs.bill_id = ?
-            """, (b["id"],)).fetchall()
-            b_dict["splits"] = [dict(s) for s in splits]
-            bills.append(b_dict)
+            bills = []
+            for b in bills_rows:
+                b_dict = dict(b)
+                splits = conn.execute("""
+                    SELECT bs.*, m.name AS member_name
+                    FROM bill_splits bs
+                    JOIN members m ON bs.member_id = m.id
+                    WHERE bs.bill_id = ?
+                """, (b["id"],)).fetchall()
+                b_dict["splits"] = [dict(s) for s in splits]
+                bills.append(b_dict)
 
-        # Settlements filtered by group
-        settlements = [dict(r) for r in conn.execute("""
-            SELECT s.*,
-                   m1.name AS from_name, m1.avatar_color AS from_color,
-                   m2.name AS to_name, m2.avatar_color AS to_color
-            FROM settlements s
-            JOIN members m1 ON s.from_member_id = m1.id
-            JOIN members m2 ON s.to_member_id = m2.id
-            WHERE s.group_id = ?
-            ORDER BY s.id DESC
-            LIMIT 50
-        """, (group_id,)).fetchall()]
+            # Settlements filtered by group
+            settlements = [dict(r) for r in conn.execute("""
+                SELECT s.*,
+                       m1.name AS from_name, m1.avatar_color AS from_color,
+                       m2.name AS to_name, m2.avatar_color AS to_color
+                FROM settlements s
+                JOIN members m1 ON s.from_member_id = m1.id
+                JOIN members m2 ON s.to_member_id = m2.id
+                WHERE s.group_id = ?
+                ORDER BY s.id DESC
+                LIMIT 50
+            """, (group_id,)).fetchall()]
 
-        # Net balance calculation (in Euros)
-        net_balances = {m["id"]: 0.0 for m in members}
-        for b in bills:
-            net_balances[b["paid_by"]] = net_balances.get(b["paid_by"], 0.0) + b["total_amount"]
-            for s in b["splits"]:
-                net_balances[s["member_id"]] = net_balances.get(s["member_id"], 0.0) - s["share_amount"]
+            # Net balance calculation (in Euros)
+            net_balances = {m["id"]: 0.0 for m in members}
+            for b in bills:
+                net_balances[b["paid_by"]] = net_balances.get(b["paid_by"], 0.0) + b["total_amount"]
+                for s in b["splits"]:
+                    net_balances[s["member_id"]] = net_balances.get(s["member_id"], 0.0) - s["share_amount"]
 
-        for s in settlements:
-            net_balances[s["from_member_id"]] = net_balances.get(s["from_member_id"], 0.0) + s["amount"]
-            net_balances[s["to_member_id"]] = net_balances.get(s["to_member_id"], 0.0) - s["amount"]
+            for s in settlements:
+                net_balances[s["from_member_id"]] = net_balances.get(s["from_member_id"], 0.0) + s["amount"]
+                net_balances[s["to_member_id"]] = net_balances.get(s["to_member_id"], 0.0) - s["amount"]
 
-        member_balances = []
-        for m in members:
-            mid = m["id"]
-            member_balances.append({
-                "id": mid,
-                "name": m["name"],
-                "avatar_color": m["avatar_color"],
-                "balance": round(net_balances.get(mid, 0.0), 2)
-            })
+            member_balances = []
+            for m in members:
+                mid = m["id"]
+                member_balances.append({
+                    "id": mid,
+                    "name": m["name"],
+                    "avatar_color": m["avatar_color"],
+                    "balance": round(net_balances.get(mid, 0.0), 2)
+                })
 
-        transfers = calculate_debt_transfers(members, net_balances)
+            transfers = calculate_debt_transfers(members, net_balances)
 
-        activities = [dict(r) for r in conn.execute("""
-            SELECT a.*, m.name AS member_name, m.avatar_color AS member_color
-            FROM activities a
-            LEFT JOIN members m ON a.member_id = m.id
-            WHERE a.group_id = ?
-            ORDER BY a.id DESC
-            LIMIT 30
-        """, (group_id,)).fetchall()]
+            activities = [dict(r) for r in conn.execute("""
+                SELECT a.*, m.name AS member_name, m.avatar_color AS member_color
+                FROM activities a
+                LEFT JOIN members m ON a.member_id = m.id
+                WHERE a.group_id = ?
+                ORDER BY a.id DESC
+                LIMIT 30
+            """, (group_id,)).fetchall()]
 
-        total_spent = sum(b["total_amount"] for b in bills)
-
-        # Get group info
-        group_row = conn.execute("SELECT id, name, invite_code FROM groups WHERE id = ?", (group_id,)).fetchone()
-        group_info = dict(group_row) if group_row else {"id": group_id, "name": "Group", "invite_code": ""}
+            total_spent = sum(b["total_amount"] for b in bills)
 
         return {
             "currentUser": current_user,
             "group": group_info,
+            "active_group": group_info,
+            "groups": user_groups,
+            "needs_group": False,
             "members": members,
             "active_items": active_items,
             "bought_items": bought_items,
@@ -613,7 +653,7 @@ def get_full_state(current_user=None, group_id=None):
                 "total_bills_count": len(bills),
                 "total_spent": round(total_spent, 2),
                 "total_members": len(members),
-                "online_members": online_count
+                "online_members": online_count if group_id > 0 else 1
             }
         }
     finally:
@@ -947,7 +987,11 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                 category = body.get("category", "Pantry").strip() or "Pantry"
                 is_urgent = 1 if body.get("is_urgent") else 0
                 added_by = current_user["id"]
-                group_id = body.get("group_id")
+                raw_gid = body.get("group_id")
+                try:
+                    group_id = int(raw_gid) if (raw_gid is not None and int(raw_gid) > 0) else None
+                except (ValueError, TypeError):
+                    group_id = None
 
                 if not title:
                     self.send_error_json("Item name is required")
@@ -971,7 +1015,7 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                     "actor_id": current_user["id"],
                     "group_id": group_id
                 })
-                self.send_json({"success": True, "id": item_id})
+                self.send_json({"success": True, "item_id": item_id})
                 return
 
             # 2. Toggle Item Bought Status
@@ -1021,15 +1065,20 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
 
             # 3. Clear All Bought Items
             if path == "/api/items/clear-bought":
-                group_id = body.get("group_id")
+                raw_gid = body.get("group_id")
+                try:
+                    group_id = int(raw_gid) if (raw_gid is not None and int(raw_gid) > 0) else None
+                except (ValueError, TypeError):
+                    group_id = None
+
                 with conn:
                     cur = conn.cursor()
                     if group_id:
                         count = cur.execute("SELECT COUNT(*) AS cnt FROM items WHERE is_bought = 1 AND group_id = ?", (group_id,)).fetchone()["cnt"]
                         cur.execute("DELETE FROM items WHERE is_bought = 1 AND group_id = ?", (group_id,))
                     else:
-                        count = cur.execute("SELECT COUNT(*) AS cnt FROM items WHERE is_bought = 1", ()).fetchone()["cnt"]
-                        cur.execute("DELETE FROM items WHERE is_bought = 1")
+                        count = cur.execute("SELECT COUNT(*) AS cnt FROM items WHERE is_bought = 1 AND (group_id IS NULL OR group_id = 0 OR added_by = ?)", (current_user["id"],)).fetchone()["cnt"]
+                        cur.execute("DELETE FROM items WHERE is_bought = 1 AND (group_id IS NULL OR group_id = 0 OR added_by = ?)", (current_user["id"],))
                     log_activity(conn, f"{current_user['name']} cleared {count} purchased item(s)", "cleared_bought", current_user["id"], group_id)
 
                 broadcast_event("state_updated", {
@@ -1072,7 +1121,11 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                 split_with = body.get("split_with", [])
                 bill_date = body.get("bill_date", "").strip() or datetime.utcnow().strftime("%Y-%m-%d")
                 notes = body.get("notes", "").strip()
-                group_id = body.get("group_id")
+                raw_gid = body.get("group_id")
+                try:
+                    group_id = int(raw_gid) if (raw_gid is not None and int(raw_gid) > 0) else None
+                except (ValueError, TypeError):
+                    group_id = None
 
                 if total_amount <= 0:
                     self.send_error_json("Total amount must be greater than 0")
@@ -1127,7 +1180,11 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                 to_id = int(body.get("to_id", 0))
                 amount = float(body.get("amount", 0.0))
                 note = body.get("note", "").strip() or "Debt settlement"
-                group_id = body.get("group_id")
+                raw_gid = body.get("group_id")
+                try:
+                    group_id = int(raw_gid) if (raw_gid is not None and int(raw_gid) > 0) else None
+                except (ValueError, TypeError):
+                    group_id = None
 
                 if not to_id or from_id == to_id:
                     self.send_error_json("Valid recipient is required")

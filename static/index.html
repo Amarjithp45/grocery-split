@@ -107,83 +107,27 @@
   </div>
 
   <!-- ========================================== -->
-  <!-- 2. GROUP SELECTOR SCREEN                   -->
-  <!-- ========================================== -->
-  <div id="group-screen" class="hidden flex-col min-h-screen items-center justify-center p-4 bg-slate-50">
-    <div class="max-w-md w-full space-y-4">
-
-      <!-- Brand -->
-      <div class="text-center space-y-1 mb-2">
-        <div class="w-12 h-12 mx-auto rounded-2xl bg-emerald-600 text-white flex items-center justify-center text-2xl shadow-md shadow-emerald-600/30">🛒</div>
-        <h1 class="text-xl font-black text-slate-900 tracking-tight">SPLITKART</h1>
-        <p class="text-xs text-slate-400">Hey <span id="group-screen-username" class="font-bold text-slate-600"></span> 👋 — pick a group to get started</p>
-      </div>
-
-      <!-- Error -->
-      <div id="group-error" class="hidden p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700"></div>
-
-      <!-- Group List -->
-      <div id="group-list" class="space-y-2">
-        <p class="text-xs text-slate-400 text-center py-4">Loading groups…</p>
-      </div>
-
-      <!-- Create Group -->
-      <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs space-y-2">
-        <h3 class="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Create New Group</h3>
-        <div class="flex gap-2">
-          <input id="new-group-name" type="text" placeholder="e.g. Roommates, Family…"
-                 class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500"
-                 onkeydown="if(event.key==='Enter'){createGroup();}" />
-          <button onclick="createGroup()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition">
-            Create
-          </button>
-        </div>
-      </div>
-
-      <!-- Join Group -->
-      <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs space-y-2">
-        <h3 class="text-xs font-extrabold text-slate-500 uppercase tracking-wider">Join with Invite Code</h3>
-        <div class="flex gap-2">
-          <input id="join-group-code" type="text" placeholder="8-char code (e.g. ABCD1234)"
-                 maxlength="8"
-                 class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-mono font-bold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 uppercase"
-                 oninput="this.value=this.value.toUpperCase()"
-                 onkeydown="if(event.key==='Enter'){joinGroup();}" />
-          <button onclick="joinGroup()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs transition">
-            Join
-          </button>
-        </div>
-      </div>
-
-      <!-- Logout -->
-      <div class="text-center pt-1">
-        <button onclick="logout()" class="text-xs text-slate-400 hover:text-rose-600 font-semibold">
-          Sign out
-        </button>
-      </div>
-
-    </div>
-  </div>
-
-  <!-- ========================================== -->
-  <!-- 3. MAIN APPLICATION (Simple 3 Tabs)        -->
+  <!-- 2. MAIN APPLICATION (Simple 3 Tabs)        -->
   <!-- ========================================== -->
   <div id="app-screen" class="hidden flex-col min-h-screen">
 
     <!-- Header -->
     <header class="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80">
       <div class="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-        <!-- Brand -->
+        <!-- Brand & Group -->
         <div class="flex items-center gap-2">
           <span class="text-2xl">🛒</span>
           <div>
-            <h1 class="text-base font-black tracking-tight text-slate-900 leading-none">SPLITKART</h1>
-            <div class="flex items-center gap-1.5 mt-0.5">
+            <div class="flex items-center gap-1.5">
+              <h1 class="text-base font-black tracking-tight text-slate-900 leading-none">SPLITKART</h1>
               <span id="live-indicator" class="w-2 h-2 rounded-full bg-emerald-500 pulse-live"></span>
-              <span class="text-[10px] text-slate-400 font-semibold">Live Sync</span>
             </div>
-            <!-- Group Badge -->
-            <div id="group-header-badge" class="text-[10px] text-slate-500 mt-0.5"></div>
+            <!-- Clickable Group Switcher -->
+            <button type="button" onclick="openGroupModal()" class="mt-1 flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 text-[11px] font-bold text-emerald-800 transition" title="Switch or manage groups">
+              <span>👥</span>
+              <span id="header-group-name">Main Group</span>
+              <span class="text-[9px] text-emerald-600">▾ Switch</span>
+            </button>
           </div>
         </div>
 
@@ -452,6 +396,82 @@
           <button type="submit" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition">Save &amp; Split (€)</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL: GROUPS (SWITCH, CREATE, JOIN)       -->
+  <!-- ========================================== -->
+  <div id="group-modal" class="modal-backdrop fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs hidden items-center justify-center p-4">
+    <div class="bg-white rounded-3xl p-5 sm:p-6 max-w-md w-full shadow-2xl border border-slate-100 space-y-4 animate-slide-down max-h-[90vh] overflow-y-auto">
+      
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">👥</span>
+          <div>
+            <h3 class="text-base font-extrabold text-slate-900 leading-tight">Switch &amp; Manage Groups</h3>
+            <p class="text-[11px] text-slate-400">Open any group or use your personal list</p>
+          </div>
+        </div>
+        <button onclick="closeModal('group-modal')" class="text-slate-400 hover:text-slate-600 p-1 text-base font-bold">✕</button>
+      </div>
+
+      <!-- Error Box -->
+      <div id="group-error" class="hidden p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700"></div>
+
+      <!-- Group List -->
+      <div class="space-y-2">
+        <div class="flex items-center justify-between text-xs font-bold text-slate-700 px-1">
+          <span>Your Groups</span>
+          <span id="group-count-badge" class="text-[10px] text-slate-400"></span>
+        </div>
+        <div id="group-modal-list" class="space-y-2">
+          <p class="text-xs text-slate-400 text-center py-3">Loading groups…</p>
+        </div>
+      </div>
+
+      <!-- Option to use Personal List without group -->
+      <div class="pt-2 border-t border-slate-100">
+        <button type="button" onclick="selectGroupById(0)" class="w-full p-3 rounded-2xl border border-dashed border-slate-300 hover:border-emerald-400 hover:bg-emerald-50/50 text-slate-700 font-bold text-xs flex items-center justify-between transition">
+          <span class="flex items-center gap-2">
+            <span class="text-base">👤</span>
+            <span class="text-left">
+              <span class="block text-slate-900">Personal List (No Group)</span>
+              <span class="block text-[10px] text-slate-400 font-normal">Use SPLITKART on your own without sharing</span>
+            </span>
+          </span>
+          <span class="text-emerald-700 font-bold text-xs">Open →</span>
+        </button>
+      </div>
+
+      <!-- Create New Group Section -->
+      <div class="pt-2 border-t border-slate-100 space-y-2">
+        <h4 class="text-xs font-extrabold text-slate-700">➕ Create New Group</h4>
+        <div class="flex gap-2">
+          <input id="new-group-name" type="text" placeholder="e.g. Roommates, Trip, Family…"
+                 class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500"
+                 onkeydown="if(event.key==='Enter'){createGroup();}" />
+          <button type="button" onclick="createGroup()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition">
+            Create
+          </button>
+        </div>
+      </div>
+
+      <!-- Join with Code Section -->
+      <div class="pt-2 border-t border-slate-100 space-y-2">
+        <h4 class="text-xs font-extrabold text-slate-700">🔗 Join with Invite Code</h4>
+        <div class="flex gap-2">
+          <input id="join-group-code" type="text" placeholder="8-char code (e.g. ABCD1234)"
+                 maxlength="8"
+                 class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono font-bold text-slate-800 placeholder-slate-400 focus:outline-none focus:border-emerald-500 uppercase"
+                 oninput="this.value=this.value.toUpperCase()"
+                 onkeydown="if(event.key==='Enter'){joinGroup();}" />
+          <button type="button" onclick="joinGroup()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs transition">
+            Join
+          </button>
+        </div>
+      </div>
+
     </div>
   </div>
 
