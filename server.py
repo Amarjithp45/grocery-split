@@ -25,6 +25,7 @@ import hashlib
 import hmac
 import base64
 import secrets
+import re
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -68,6 +69,36 @@ def hash_password(password: str, salt: str = None) -> tuple[str, str]:
 def generate_invite_code():
     """Generate a random 8-character invite code."""
     return secrets.token_urlsafe(6).upper()[:8]
+
+def combine_quantities(old_qty: str, add_qty: str) -> str:
+    """Intelligently combine two item quantities into a single clean string."""
+    old_str = str(old_qty or "1").strip()
+    add_str = str(add_qty or "1").strip()
+
+    # Try pure integer addition: "1" + "2" -> "3"
+    try:
+        return str(int(old_str) + int(add_str))
+    except ValueError:
+        pass
+
+    # Try float addition: "1.5" + "0.5" -> "2"
+    try:
+        val = float(old_str) + float(add_str)
+        return str(int(val)) if val.is_integer() else f"{val:.1f}"
+    except ValueError:
+        pass
+
+    # Try matching numbers with units: e.g. "1L" + "2L" -> "3L", "500g" + "250g" -> "750g"
+    m1 = re.match(r"^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)$", old_str)
+    m2 = re.match(r"^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)$", add_str)
+    if m1 and m2 and m1.group(2).lower() == m2.group(2).lower():
+        num = float(m1.group(1)) + float(m2.group(1))
+        unit = m1.group(2)
+        num_str = str(int(num)) if num.is_integer() else f"{num:.1f}"
+        return f"{num_str}{unit}"
+
+    # Fallback: combine cleanly with a plus
+    return f"{old_str} + {add_str}"
 
 def is_permanent_admin(username: str) -> bool:
     """Return True if username matches the permanent admin email."""
@@ -988,6 +1019,7 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                 is_urgent = 1 if body.get("is_urgent") else 0
                 added_by = current_user["id"]
                 raw_gid = body.get("group_id")
+                merge_with_id = body.get("merge_with_id")
                 try:
                     group_id = int(raw_gid) if (raw_gid is not None and int(raw_gid) > 0) else None
                 except (ValueError, TypeError):
@@ -999,6 +1031,23 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
 
                 with conn:
                     cur = conn.cursor()
+                    if merge_with_id:
+                        item = cur.execute("SELECT * FROM items WHERE id = ?", (merge_with_id,)).fetchone()
+                        if item:
+                            new_qty = combine_quantities(item["quantity"], quantity)
+                            cur.execute("UPDATE items SET quantity = ? WHERE id = ?", (new_qty, merge_with_id))
+                            log_activity(conn, f"{current_user['name']} added {quantity} more to {item['title']} (Total: {new_qty})", "item_merged", added_by, group_id)
+                            broadcast_event("state_updated", {
+                                "action": "item_merged",
+                                "title": item["title"],
+                                "quantity": new_qty,
+                                "actor": current_user["name"],
+                                "actor_id": current_user["id"],
+                                "group_id": group_id
+                            })
+                            self.send_json({"success": True, "item_id": merge_with_id, "quantity": new_qty, "merged": True})
+                            return
+
                     cur.execute(
                         "INSERT INTO items (title, quantity, category, is_urgent, added_by, group_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                         (title, quantity, category, is_urgent, added_by, group_id, now_str)
@@ -1016,6 +1065,36 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                     "group_id": group_id
                 })
                 self.send_json({"success": True, "item_id": item_id})
+                return
+
+            # 1B. Merge Item Quantity (When duplicate is confirmed)
+            if path == "/api/items/merge":
+                item_id = body.get("item_id")
+                add_quantity = str(body.get("add_quantity", "1")).strip() or "1"
+                if not item_id:
+                    self.send_error_json("item_id is required")
+                    return
+
+                with conn:
+                    cur = conn.cursor()
+                    item = cur.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
+                    if not item:
+                        self.send_error_json("Item not found", status=404)
+                        return
+
+                    new_qty = combine_quantities(item["quantity"], add_quantity)
+                    cur.execute("UPDATE items SET quantity = ? WHERE id = ?", (new_qty, item_id))
+                    log_activity(conn, f"{current_user['name']} added {add_quantity} more to {item['title']} (Total: {new_qty})", "item_merged", current_user["id"], item["group_id"])
+
+                broadcast_event("state_updated", {
+                    "action": "item_merged",
+                    "title": item["title"],
+                    "quantity": new_qty,
+                    "actor": current_user["name"],
+                    "actor_id": current_user["id"],
+                    "group_id": item["group_id"]
+                })
+                self.send_json({"success": True, "item_id": item_id, "new_quantity": new_qty})
                 return
 
             # 2. Toggle Item Bought Status
@@ -1223,7 +1302,11 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
 
             # 7. Admin Member Removal (Safely cascades dependencies)
             if path == "/api/members/remove":
-                if not current_user.get("is_admin"):
+                is_admin_user = (
+                    current_user.get("is_admin") == 1
+                    or is_permanent_admin(current_user.get("username", ""))
+                )
+                if not is_admin_user:
                     self.send_error_json("Only Group Admin can remove members", status=403)
                     return
 
@@ -1249,11 +1332,13 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                     # Clean all foreign-key dependent references safely before deleting
                     cur.execute("DELETE FROM sessions WHERE member_id = ?", (target_id,))
                     cur.execute("DELETE FROM bill_splits WHERE member_id = ?", (target_id,))
+                    cur.execute("DELETE FROM bill_splits WHERE bill_id IN (SELECT id FROM bills WHERE paid_by = ?)", (target_id,))
+                    cur.execute("DELETE FROM bills WHERE paid_by = ?", (target_id,))
                     cur.execute("UPDATE items SET added_by = NULL WHERE added_by = ?", (target_id,))
                     cur.execute("UPDATE items SET bought_by = NULL WHERE bought_by = ?", (target_id,))
                     cur.execute("UPDATE activities SET member_id = NULL WHERE member_id = ?", (target_id,))
                     cur.execute("DELETE FROM settlements WHERE from_member_id = ? OR to_member_id = ?", (target_id, target_id))
-                    cur.execute("DELETE FROM bills WHERE paid_by = ?", (target_id,))
+                    cur.execute("UPDATE groups SET created_by = NULL WHERE created_by = ?", (target_id,))
                     cur.execute("DELETE FROM group_members WHERE member_id = ?", (target_id,))
                     cur.execute("DELETE FROM members WHERE id = ?", (target_id,))
 

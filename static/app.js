@@ -38,6 +38,13 @@ const state = {
 // 1. AUTHENTICATION & SESSION MANAGEMENT
 // =========================================================
 
+function isUserAdmin() {
+  if (!state.currentUser) return false;
+  if (state.currentUser.is_admin === 1 || state.currentUser.is_admin === '1' || state.currentUser.is_admin === true) return true;
+  if (state.currentUser.username && state.currentUser.username.toLowerCase() === 'amarjithp45@gmail.com') return true;
+  return false;
+}
+
 function getAuthHeaders() {
   const headers = { 'Content-Type': 'application/json' };
   if (state.authToken) {
@@ -515,7 +522,7 @@ function connectSSE() {
     try {
       const data = JSON.parse(e.data);
       handleLiveEvent(data);
-      if (state.activeGroupId) loadState(false);
+      loadState(false);
     } catch (err) {}
   });
 
@@ -534,6 +541,12 @@ function handleLiveEvent(data) {
       playSound('add');
     }
     showToast(`${data.actor || 'Someone'} added: ${data.title}`, 'info');
+  } else if (data.action === 'item_merged') {
+    if (!isMe) {
+      sendPhoneNotification("🛒 SPLITKART: Item Updated", `${data.actor || 'A friend'} added more to "${data.title}" (Now ${data.quantity})`);
+      playSound('add');
+    }
+    showToast(`${data.actor || 'Someone'} added more to "${data.title}" (Total: ${data.quantity})`, 'info');
   } else if (data.action === 'item_toggled') {
     if (data.is_bought) {
       if (!isMe) {
@@ -651,7 +664,7 @@ function renderLockedUserProfile() {
   const pill = document.getElementById('user-profile-pill');
   if (!state.currentUser || !pill) return;
 
-  const isAdmin = state.currentUser.is_admin;
+  const isAdmin = isUserAdmin();
   pill.innerHTML = `
     <div class="flex items-center gap-1.5 bg-slate-100/90 rounded-xl px-2 py-1">
       <span class="w-5 h-5 rounded-lg flex items-center justify-center text-white text-[10px] font-bold" style="background-color: ${state.currentUser.avatar_color || '#10b981'}">
@@ -903,7 +916,7 @@ function renderFriendsDirectory() {
 
   if (!container) return;
 
-  const isAdmin = state.currentUser && Boolean(state.currentUser.is_admin);
+  const isAdmin = isUserAdmin();
 
   container.innerHTML = state.members.map(m => {
     const isMe = state.currentUser && m.id === state.currentUser.id;
@@ -932,9 +945,9 @@ function renderFriendsDirectory() {
 
         <div class="flex items-center gap-2">
           ${isAdmin && !isMe ? `
-            <button onclick="removeMember(${m.id}, '${escapeHtml(m.name)}')"
-                    class="px-2.5 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition flex items-center gap-1"
-                    title="Remove member">
+            <button type="button" onclick="removeMember(${m.id})"
+                    class="px-2.5 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition flex items-center gap-1 shadow-2xs"
+                    title="Remove candidate">
               <span>Remove</span>
               <span>✕</span>
             </button>
@@ -959,7 +972,9 @@ function renderFriendsDirectory() {
   }
 }
 
-async function removeMember(memberId, memberName) {
+async function removeMember(memberId) {
+  const member = (state.members || []).find(m => m.id === memberId);
+  const memberName = member ? member.name : 'this candidate';
   if (!confirm(`Are you sure you want to remove "${memberName}" from SPLITKART?`)) return;
 
   try {
@@ -971,7 +986,7 @@ async function removeMember(memberId, memberName) {
     const data = await res.json();
 
     if (res.ok && data.success) {
-      showToast(`Removed ${memberName} from SPLITKART.`, 'info');
+      showToast(`Removed ${memberName}`, 'info');
       await loadState();
     } else {
       alert(data.error || 'Failed to remove member.');
@@ -998,6 +1013,53 @@ async function addItem(e) {
 
   if (!title) return;
 
+  // 1. Check if an item with the same name is already on the active checklist
+  const existingItem = state.activeItems.find(
+    item => item.title.trim().toLowerCase() === title.toLowerCase()
+  );
+
+  if (existingItem) {
+    const adder = existingItem.added_by_name || 'Someone';
+    const currentQty = existingItem.quantity || '1';
+
+    // Notify candidate that item is already there and ask if they want to add it again
+    const promptMsg = `"${existingItem.title}" is already on the grocery list!\n` +
+                      `Current quantity: ${currentQty} (added by ${adder}).\n\n` +
+                      `Do you want to add ${quantity} more to it?`;
+
+    if (!confirm(promptMsg)) {
+      return; // Cancelled by candidate
+    }
+
+    // Merge into the 1 individual item
+    try {
+      const res = await fetch('/api/items/merge', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          item_id: existingItem.id,
+          add_quantity: quantity
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        titleInput.value = '';
+        qtyInput.value = '';
+        titleInput.focus();
+        playSound('add');
+        showToast(`Combined with "${existingItem.title}" (Total: ${data.new_quantity})`, 'success');
+        loadState();
+      } else if (res.status === 401) {
+        showAuthScreen();
+      }
+    } catch (err) {
+      console.error("Failed to merge item:", err);
+    }
+    return;
+  }
+
+  // 2. Fresh new item
   try {
     const res = await fetch('/api/items', {
       method: 'POST',
