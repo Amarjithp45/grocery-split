@@ -1048,6 +1048,39 @@ class SPLITKARTRequestHandler(BaseHTTPRequestHandler):
                             self.send_json({"success": True, "item_id": merge_with_id, "quantity": new_qty, "merged": True})
                             return
 
+                    # Case-insensitive duplicate check in the same group for unbought items
+                    if not body.get("force"):
+                        if group_id:
+                            existing = cur.execute("""
+                                SELECT i.*, m.name AS added_by_name 
+                                FROM items i 
+                                LEFT JOIN members m ON i.added_by = m.id
+                                WHERE i.is_bought = 0 AND i.group_id = ? AND LOWER(TRIM(i.title)) = LOWER(TRIM(?))
+                            """, (group_id, title)).fetchone()
+                        else:
+                            existing = cur.execute("""
+                                SELECT i.*, m.name AS added_by_name 
+                                FROM items i 
+                                LEFT JOIN members m ON i.added_by = m.id
+                                WHERE i.is_bought = 0 AND (i.group_id IS NULL OR i.group_id = 0) AND LOWER(TRIM(i.title)) = LOWER(TRIM(?))
+                            """, (title,)).fetchone()
+
+                        if existing:
+                            combined = combine_quantities(existing["quantity"], quantity)
+                            self.send_json({
+                                "duplicate": True,
+                                "existing_item": {
+                                    "id": existing["id"],
+                                    "title": existing["title"],
+                                    "quantity": existing["quantity"],
+                                    "added_by": existing["added_by"],
+                                    "added_by_name": existing["added_by_name"] or "Someone"
+                                },
+                                "add_quantity": quantity,
+                                "combined_quantity": combined
+                            })
+                            return
+
                     cur.execute(
                         "INSERT INTO items (title, quantity, category, is_urgent, added_by, group_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                         (title, quantity, category, is_urgent, added_by, group_id, now_str)

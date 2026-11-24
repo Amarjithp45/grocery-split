@@ -998,8 +998,114 @@ async function removeMember(memberId) {
 }
 
 // =========================================================
-// 6. USER ACTIONS
+// 6. USER ACTIONS & DUPLICATE ITEM HANDLING
 // =========================================================
+
+let _pendingDuplicate = null;
+
+function parseItemQuantity(qStr) {
+  if (!qStr) return { num: 1, unit: '' };
+  const str = String(qStr).trim();
+  const match = str.match(/^([\d.]+)\s*(.*)$/);
+  if (match) {
+    const num = parseFloat(match[1]);
+    const unit = (match[2] || '').trim();
+    if (!isNaN(num)) return { num, unit };
+  }
+  return { num: null, unit: str };
+}
+
+function combineItemQuantities(oldQty, addQty) {
+  const o = parseItemQuantity(oldQty);
+  const a = parseItemQuantity(addQty);
+  if (o.num !== null && a.num !== null) {
+    const oUnit = (o.unit || '').toLowerCase();
+    const aUnit = (a.unit || '').toLowerCase();
+    if (oUnit === aUnit) {
+      const sum = o.num + a.num;
+      const formatted = Number.isInteger(sum) ? sum.toString() : sum.toFixed(2).replace(/\.?0+$/, '');
+      const unit = o.unit ? ' ' + o.unit : '';
+      return formatted + unit;
+    }
+  }
+  return `${oldQty} + ${addQty}`;
+}
+
+function showDuplicatePrompt(existingItem, addQuantity) {
+  _pendingDuplicate = {
+    existingId: existingItem.id,
+    title: existingItem.title,
+    addQuantity: addQuantity
+  };
+
+  const nameEl = document.getElementById('dup-modal-item-name');
+  const qtyEl = document.getElementById('dup-modal-current-qty');
+  const adderEl = document.getElementById('dup-modal-adder-info');
+  const combinedEl = document.getElementById('dup-modal-combined-qty');
+
+  if (nameEl) nameEl.textContent = existingItem.title;
+  if (qtyEl) qtyEl.textContent = `Qty: ${existingItem.quantity || '1'}`;
+
+  const isMe = state.currentUser && (existingItem.added_by === state.currentUser.id);
+  const adderName = existingItem.added_by_name || 'Another member';
+  if (adderEl) {
+    adderEl.textContent = isMe
+      ? `Already on the checklist (added by you).`
+      : `Already on the checklist (added by ${adderName}).`;
+  }
+
+  const combined = combineItemQuantities(existingItem.quantity || '1', addQuantity);
+  if (combinedEl) combinedEl.textContent = combined;
+
+  openModal('duplicate-item-modal');
+}
+
+function cancelDuplicateModal() {
+  closeModal('duplicate-item-modal');
+  _pendingDuplicate = null;
+}
+
+async function confirmMergeDuplicate() {
+  if (!_pendingDuplicate) {
+    closeModal('duplicate-item-modal');
+    return;
+  }
+
+  const { existingId, title, addQuantity } = _pendingDuplicate;
+  closeModal('duplicate-item-modal');
+  _pendingDuplicate = null;
+
+  try {
+    const res = await fetch('/api/items/merge', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        item_id: existingId,
+        add_quantity: addQuantity
+      })
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      const titleInput = document.getElementById('item-title-input');
+      const qtyInput = document.getElementById('item-qty-input');
+      if (titleInput) titleInput.value = '';
+      if (qtyInput) qtyInput.value = '';
+      if (titleInput) titleInput.focus();
+      playSound('add');
+      showToast(`Combined into 1 item "${title}" (Total: ${data.new_quantity})`, 'success');
+      loadState();
+    } else if (res.status === 401) {
+      showAuthScreen();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.error || 'Failed to merge item', 'error');
+    }
+  } catch (err) {
+    console.error('Failed to merge duplicate item:', err);
+    showToast('Error merging item', 'error');
+  }
+}
 
 async function addItem(e) {
   e.preventDefault();
@@ -1013,59 +1119,31 @@ async function addItem(e) {
 
   if (!title) return;
 
-  // 1. Check if an item with the same name is already on the active checklist
+  // 1. Check if an item with the same name is already on the active checklist (case-insensitive & whitespace-trimmed)
+  const normalizedTitle = title.toLowerCase().replace(/\s+/g, ' ');
   const existingItem = state.activeItems.find(
-    item => item.title.trim().toLowerCase() === title.toLowerCase()
+    item => item.title.trim().toLowerCase().replace(/\s+/g, ' ') === normalizedTitle
   );
 
   if (existingItem) {
-    const adder = existingItem.added_by_name || 'Someone';
-    const currentQty = existingItem.quantity || '1';
-
-    // Notify candidate that item is already there and ask if they want to add it again
-    const promptMsg = `"${existingItem.title}" is already on the grocery list!\n` +
-                      `Current quantity: ${currentQty} (added by ${adder}).\n\n` +
-                      `Do you want to add ${quantity} more to it?`;
-
-    if (!confirm(promptMsg)) {
-      return; // Cancelled by candidate
-    }
-
-    // Merge into the 1 individual item
-    try {
-      const res = await fetch('/api/items/merge', {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          item_id: existingItem.id,
-          add_quantity: quantity
-        })
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        titleInput.value = '';
-        qtyInput.value = '';
-        titleInput.focus();
-        playSound('add');
-        showToast(`Combined with "${existingItem.title}" (Total: ${data.new_quantity})`, 'success');
-        loadState();
-      } else if (res.status === 401) {
-        showAuthScreen();
-      }
-    } catch (err) {
-      console.error("Failed to merge item:", err);
-    }
+    showDuplicatePrompt(existingItem, quantity);
     return;
   }
 
-  // 2. Fresh new item
+  // 2. Fresh new item (server also performs duplicate check as a backup)
   try {
     const res = await fetch('/api/items', {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({ title, quantity, category, group_id: state.activeGroupId })
     });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (res.ok && data.duplicate && data.existing_item) {
+      showDuplicatePrompt(data.existing_item, data.add_quantity || quantity);
+      return;
+    }
 
     if (res.ok) {
       titleInput.value = '';
@@ -1075,6 +1153,8 @@ async function addItem(e) {
       loadState();
     } else if (res.status === 401) {
       showAuthScreen();
+    } else {
+      showToast(data.error || 'Failed to add item', 'error');
     }
   } catch (err) {
     console.error("Failed to add item:", err);

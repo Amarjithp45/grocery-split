@@ -1,5 +1,5 @@
 // SPLITKART Service Worker - Network First with Offline Fallback
-const CACHE_NAME = 'SPLITKART-v8';
+const CACHE_NAME = 'SPLITKART-v9';
 const STATIC_ASSETS = [
   '/',
   '/style.css',
